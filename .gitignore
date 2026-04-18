@@ -1,6 +1,7 @@
 token_*.json
 .key
 registry.json
+folders_registry.json
 accounts_config.json
 credentials.json
 __pycache__
