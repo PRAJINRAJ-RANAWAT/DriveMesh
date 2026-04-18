@@ -1,180 +1,190 @@
-import os.path, io, time
-from googleapiclient.http import MediaIoBaseUpload, MediaIoBaseDownload
-from google.auth.transport.requests import Request
-from google.oauth2.credentials import Credentials
-from google_auth_oauthlib.flow import InstalledAppFlow
-from googleapiclient.discovery import build
-from googleapiclient.errors import HttpError
-from cryptography.fernet import Fernet
+import os
+import time
+from auth_manager import AccountManager
+from storage_manager import DistributedStorageManager
+from drive_helpers import list_files_selectable, create_folder
+from ui_utils import UI
 
-
-SCOPES = ["https://www.googleapis.com/auth/drive"]
-cs = Fernet(open(".key", 'rb').read())
-
-
-def create_folder(creds, folder_name = "script_generated_folder"):
-	"""Create a folder and prints the folder ID
-	Returns : Folder Id
-
-	Load pre-authorized user credentials from the environment.
-	TODO(developer) - See https://developers.google.com/identity
-	for guides on implementing OAuth2 for the application.
-	"""
-
-	try:
-		# create drive api client
-		service = build("drive", "v3", credentials=creds)
-		file_metadata = {
-				"name": folder_name,
-				"mimeType": "application/vnd.google-apps.folder",
-		}
-
-		# pylint: disable=maybe-no-member
-		file = service.files().create(body=file_metadata, fields="id").execute()
-		print(f'Folder ID: "{file.get("id")}".')
-		return file.get("id")
-
-	except HttpError as error:
-		print(f"An error occurred: {error}")
-		return None
-	
-
-
-def auth():
-	# The file token.json stores the user's access and refresh tokens, and is
-	# created automatically when the authorization flow completes for the first
-	# time.
-	creds = None
-	if os.path.exists("token.json"):
-		creds = Credentials.from_authorized_user_file("token.json", SCOPES)
-	# If there are no (valid) credentials available, let the user log in.
-	if not creds or not creds.valid:
-		if creds and creds.expired and creds.refresh_token:
-			creds.refresh(Request())
-		else:
-			flow = InstalledAppFlow.from_client_secrets_file(
-					"credentials.json", SCOPES
-			)
-			creds = flow.run_local_server(port=0)
-		# Save the credentials for the next run
-		with open("token.json", "w") as token:
-			token.write(creds.to_json())
-
-	return creds
-
-
-def list_10_files(creds):
-	try:
-		service = build("drive", "v3", credentials=creds)
-
-		# Call the Drive v3 API
-		results = (
-				service.files()
-				.list(pageSize=10, fields="nextPageToken, files(id, name)")
-				.execute()
-		)
-		items = results.get("files", [])
-
-		if not items:
-			print("No files found.")
-			return
-		print("Files:")
-		for item in items:
-			print(f"{item['name']} ({item['id']})")
-	except HttpError as error:
-		# TODO(developer) - Handle errors from drive API.
-		print(f"An error occurred: {error}")
-	
-
-def upload_encrypt_file(creds, folder_id, file_name):
-	"""Upload a file to the specified folder and prints file ID, folder ID
-	Args: Id of the folder
-	Returns: ID of the file uploaded
-
-	Load pre-authorized user credentials from the environment.
-	TODO(developer) - See https://developers.google.com/identity
-	for guides on implementing OAuth2 for the application.
-	"""
-
-	try:
-		# create drive api client
-		service = build("drive", "v3", credentials=creds)
-
-		fs = io.BytesIO(cs.encrypt(open("app.py", 'rb').read()))
-
-		file_metadata = {"name": file_name, "parents": [folder_id]}
-		media = MediaIoBaseUpload(
-				fs, mimetype="document/text", resumable=True
-		)
-		# pylint: disable=maybe-no-member
-		file = (
-				service.files()
-				.create(body=file_metadata, media_body=media, fields="id")
-				.execute()
-		)
-		print(f'File ID: "{file.get("id")}".')
-		return file.get("id")
-
-	except HttpError as error:
-		print(f"An error occurred: {error}")
-		return None
-
-
-def download_decrypt_file(creds, real_file_id, file_name):
-	"""Downloads a file
-	Args:
-			real_file_id: ID of the file to download
-	Returns : IO object with location.
-
-	Load pre-authorized user credentials from the environment.
-	TODO(developer) - See https://developers.google.com/identity
-	for guides on implementing OAuth2 for the application.
-	"""
-
-	try:
-		# create drive api client
-		service = build("drive", "v3", credentials=creds)
-
-		file_id = real_file_id
-
-		# pylint: disable=maybe-no-member
-		request = service.files().get_media(fileId=file_id)
-		file = io.BytesIO()
-		downloader = MediaIoBaseDownload(file, request)
-		done = False
-		while done is False:
-			status, done = downloader.next_chunk()
-			print(f"Download {int(status.progress() * 100)}.")
-		
-		fdc = cs.decrypt(file.getvalue())
-		open(file_name, 'wb').write(fdc)
-
-	except HttpError as error:
-		print(f"An error occurred: {error}")
-		file = None
-	
-	return fdc.decode()
-
+def migrate_registry(dist_manager):
+    """Ensures all registry entries have a parent_path field."""
+    updated = False
+    for name, info in dist_manager.registry.items():
+        if 'parent_path' not in info:
+            info['parent_path'] = 'root'
+            updated = True
+    if updated:
+        dist_manager._save_json(dist_manager.registry_path, dist_manager.registry)
 
 def main():
-	"""Shows basic usage of the Drive v3 API.
-	Prints the names and ids of the first 10 files the user has access to.
-	"""
-	creds = auth()
+    UI.clear()
+    UI.header()
+    
+    acc_manager = AccountManager()
+    dist_manager = DistributedStorageManager()
+    
+    migrate_registry(dist_manager)
+    
+    if not acc_manager.creds_list:
+        UI.status("no accounts found. please add one.", success=False)
+        if not acc_manager.add_account():
+            UI.status("auth failed. exiting.", success=False)
+            return
 
-	## READ
+    # Virtual Folder context
+    current_folder_name = 'root'
+    # IDs mapped by account index (as strings)
+    current_ids_map = {} 
+    folder_stack = [] # (name, ids_map)
+    
+    while True:
+        UI.location(len(acc_manager.creds_list), current_folder_name)
+        
+        print(f"\n  {UI.DIM}[1]{UI.RESET} explore   {UI.DIM}[2]{UI.RESET} upload    {UI.DIM}[3]{UI.RESET} pull")
+        print(f"  {UI.DIM}[4]{UI.RESET} move      {UI.DIM}[5]{UI.RESET} delete    {UI.DIM}[6]{UI.RESET} registry")
+        print(f"  {UI.DIM}[7]{UI.RESET} mkdir     {UI.DIM}[8]{UI.RESET} accounts  {UI.DIM}[9]{UI.RESET} exit")
+        
+        choice = input(f"\n{UI.DIM}› mode:{UI.RESET} ")
+        
+        if choice == '1': # Virtual Explorer
+            while True:
+                UI.clear()
+                UI.header()
+                UI.location(len(acc_manager.creds_list), current_folder_name)
+                print(f"\n {UI.DIM}browsing virtual distributed registry{UI.RESET}")
+                
+                display_items = []
+                if current_folder_name != 'root':
+                    display_items.append({'type': 'back', 'name': '..'})
+                
+                # 1. Find virtual subfolders
+                # folders_registry keys are paths like "root/abc"
+                for path, ids in dist_manager.folder_registry.items():
+                    parent = "/".join(path.split("/")[:-1])
+                    name = path.split("/")[-1]
+                    if parent == current_folder_name:
+                        display_items.append({'type': 'dir', 'name': name, 'ids': ids, 'path': path})
+                
+                # 2. Find virtual files
+                for name, info in dist_manager.registry.items():
+                    if info.get('parent_path') == current_folder_name:
+                        display_items.append({'type': 'file', 'name': name, 'size': info['file_size']})
 
-	# list_10_files(creds)
+                if not display_items:
+                    print(f"\n {UI.DIM}this virtual folder is empty.{UI.RESET}")
+                else:
+                    for i, item in enumerate(display_items):
+                        if item['type'] == 'dir':
+                            color = UI.CYAN
+                            label = "dir "
+                        elif item['type'] == 'file':
+                            color = UI.GREEN
+                            label = "file"
+                        else:
+                            color = UI.DIM
+                            label = "back"
+                        
+                        size_str = f" ({item['size']/(1024*1024):.1f} MB)" if item['type'] == 'file' else ""
+                        print(f" {UI.DIM}{i:2}{UI.RESET} {color}{label}{UI.RESET} {item['name']}{UI.DIM}{size_str}{UI.RESET}")
+                
+                v_choice = input(f"\n{UI.DIM}› select index (q):{UI.RESET} ")
+                if v_choice.lower() == 'q': break
+                
+                try:
+                    idx = int(v_choice)
+                    if 0 <= idx < len(display_items):
+                        selected = display_items[idx]
+                        if selected['type'] == 'back':
+                            if folder_stack:
+                                current_folder_name, current_ids_map = folder_stack.pop()
+                            else:
+                                current_folder_name, current_ids_map = 'root', {}
+                        elif selected['type'] == 'dir':
+                            folder_stack.append((current_folder_name, current_ids_map.copy()))
+                            current_folder_name = selected['path']
+                            current_ids_map = selected['ids']
+                        else:
+                            UI.info(f"selected file: {selected['name']}")
+                            print(f"  {UI.DIM}[1]{UI.RESET} pull  {UI.DIM}[2]{UI.RESET} move  {UI.DIM}[3]{UI.RESET} delete  {UI.DIM}[4]{UI.RESET} back")
+                            op = input(f"\n{UI.DIM}› action:{UI.RESET} ")
+                            if op == '1' or op == '2':
+                                local_p = input(f"{UI.DIM}› save as (default: downloaded_{selected['name']}):{UI.RESET} ")
+                                if not local_p: local_p = f"downloaded_{selected['name']}"
+                                if dist_manager.download_distributed(selected['name'], local_p, acc_manager):
+                                    if op == '2': dist_manager.delete_distributed(selected['name'], acc_manager)
+                            elif op == '3':
+                                dist_manager.delete_distributed(selected['name'], acc_manager)
+                    else: UI.status("invalid index", success=False)
+                except ValueError: pass
+            UI.clear()
+            UI.header()
 
-	folder_id = create_folder(creds, "script_generated_folder")
+        elif choice == '2': # Upload
+            local_path = input(f"{UI.DIM}› path:{UI.RESET} ").strip('"')
+            if not os.path.exists(local_path):
+                UI.status("file not found", success=False)
+                continue
+            remote_name = input(f"{UI.DIM}› name (default: {os.path.basename(local_path)}):{UI.RESET} ")
+            if not remote_name: remote_name = os.path.basename(local_path)
+            
+            # Pass the current IDs map and the virtual path
+            dist_manager.upload_distributed(local_path, remote_name, acc_manager, 
+                                           parent_ids_map=current_ids_map, 
+                                           parent_path=current_folder_name)
+            
+        elif choice == '3' or choice == '4': # Pull (3) or Move (4)
+            files = dist_manager.list_distributed_files()
+            if files:
+                idx_choice = input(f"\n{UI.DIM}› select index:{UI.RESET} ")
+                try:
+                    idx = int(idx_choice)
+                    if 0 <= idx < len(files):
+                        remote_name = files[idx]
+                        local_path = input(f"{UI.DIM}› save as (default: downloaded_{remote_name}):{UI.RESET} ")
+                        if not local_path: local_path = f"downloaded_{remote_name}"
+                        
+                        if dist_manager.download_distributed(remote_name, local_path, acc_manager):
+                            if choice == '4': # Move
+                                UI.info(f"move: purging cloud storage for {remote_name}...")
+                                dist_manager.delete_distributed(remote_name, acc_manager)
+                except ValueError: UI.status("numeric input required", success=False)
+                
+        elif choice == '5': # Delete
+            files = dist_manager.list_distributed_files()
+            if files:
+                idx_choice = input(f"\n{UI.DIM}› select index to delete:{UI.RESET} ")
+                try:
+                    idx = int(idx_choice)
+                    if 0 <= idx < len(files):
+                        dist_manager.delete_distributed(files[idx], acc_manager)
+                except ValueError: UI.status("numeric input required", success=False)
 
-	file_id = upload_encrypt_file(creds, folder_id, "script_generated_file.py")
+        elif choice == '6':
+            dist_manager.list_distributed_files()
+            
+        elif choice == '7': # Mkdir (Distributed)
+            folder_name = input(f"{UI.DIM}› folder name:{UI.RESET} ")
+            new_ids = dist_manager.mkdir_distributed(folder_name, acc_manager, parent_ids_map=current_ids_map)
+            if new_ids:
+                # Add to registry using the full virtual path
+                path_key = f"{current_folder_name}/{folder_name}"
+                dist_manager.folder_registry[path_key] = new_ids
+                dist_manager._save_json(dist_manager.folder_registry_path, dist_manager.folder_registry)
+            
+        elif choice == '8': # Accounts
+            while True:
+                UI.info("account management")
+                accounts = acc_manager.get_accounts_info()
+                for i, acc in enumerate(accounts):
+                    print(f"  {UI.DIM}[{i}]{UI.RESET} {acc['name']} {UI.DIM}({acc['token_file']}){UI.RESET}")
+                print(f"\n  {UI.DIM}[1]{UI.RESET} add account  {UI.DIM}[2]{UI.RESET} back")
+                subchoice = input(f"\n{UI.DIM}› action:{UI.RESET} ")
+                if subchoice == '1': acc_manager.add_account()
+                elif subchoice == '2': break
 
-	time.sleep(20)
-
-	print(download_decrypt_file(creds, file_id, "decrypted_file.py"))
-
-	
+        elif choice == '9' or choice == 'exit':
+            UI.status("session ended")
+            break
+        else: UI.status("unknown command", success=False)
 
 if __name__ == "__main__":
-	main()
+    main()
