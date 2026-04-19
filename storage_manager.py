@@ -8,6 +8,7 @@ import json
 import concurrent.futures
 import time
 import shutil
+import tempfile
 
 class DistributedStorageManager:
     """Manages chunking, encryption, and parallel distribution of files/folders."""
@@ -16,6 +17,7 @@ class DistributedStorageManager:
         self.folder_registry_path = folder_registry_path
         self.registry = self._load_json(self.registry_path)
         self.folder_registry = self._load_json(self.folder_registry_path)
+        self.service_cache = {} # Cache services per account index
 
     def _load_json(self, path):
         if os.path.exists(path):
@@ -26,6 +28,12 @@ class DistributedStorageManager:
     def _save_json(self, path, data):
         with open(path, 'w') as f:
             json.dump(data, f, indent=2)
+
+    def _get_service(self, creds, acc_idx):
+        """Returns a cached Drive service object for the given account."""
+        if acc_idx not in self.service_cache:
+            self.service_cache[acc_idx] = build("drive", "v3", credentials=creds)
+        return self.service_cache[acc_idx]
 
     def _upload_chunk_task(self, creds, local_path, byte_offset, size, chunk_name, chunk_idx, acc_idx, parent_id=None):
         """Worker task: reads, encrypts, and uploads a chunk directly from memory."""
@@ -38,7 +46,7 @@ class DistributedStorageManager:
             encrypted_chunk = cipher.encrypt(chunk_data)
             
             # 2. Upload to Drive
-            service = build("drive", "v3", credentials=creds)
+            service = self._get_service(creds, acc_idx)
             file_metadata = {"name": chunk_name, "appProperties": {"type": "chunk", "order": str(chunk_idx)}}
             if parent_id:
                 file_metadata["parents"] = [parent_id]
@@ -117,8 +125,8 @@ class DistributedStorageManager:
             UI.status(f"critical upload error: {e}", success=False)
             return False
 
-    def mkdir_distributed(self, folder_name, acc_manager, parent_ids_map=None):
-        """Creates a folder in all accounts and tracks them together."""
+    def mkdir_distributed(self, folder_name, acc_manager, path_key, parent_ids_map=None):
+        """Creates a folder in all accounts, tracks them together, and saves to registry."""
         if not acc_manager.creds_list: return None
         
         UI.info(f"creating distributed folder: {folder_name}...")
@@ -126,7 +134,7 @@ class DistributedStorageManager:
         
         def _mkdir_task(creds, acc_idx, p_id):
             try:
-                service = build("drive", "v3", credentials=creds)
+                service = self._get_service(creds, acc_idx)
                 file_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
                 if p_id: file_metadata["parents"] = [p_id]
                 folder = service.files().create(body=file_metadata, fields="id").execute()
@@ -145,33 +153,28 @@ class DistributedStorageManager:
                 idx, f_id = future.result()
                 if f_id: new_ids_map[str(idx)] = f_id
         
-        # Save to registry (logical path or just the map)
-        # For simplicity, we'll let app.py handle the path-to-map logic if needed
-        UI.status(f"distributed folder '{folder_name}' synced across {len(new_ids_map)} accounts")
-        return new_ids_map
+        if new_ids_map:
+            self.folder_registry[path_key] = new_ids_map
+            self._save_json(self.folder_registry_path, self.folder_registry)
+            UI.status(f"distributed folder '{folder_name}' synced across {len(new_ids_map)} accounts")
+            return new_ids_map
+        return None
 
-    def _download_chunk_task(self, creds, chunk_id, order, temp_dir):
-        """Worker task for parallel chunk download and decryption."""
+    def _download_chunk_task(self, creds, chunk_id, order, acc_idx):
+        """Worker task for parallel chunk download and decryption (In-Memory)."""
         try:
-            service = build("drive", "v3", credentials=creds)
+            service = self._get_service(creds, acc_idx)
             request = service.files().get_media(fileId=chunk_id)
             
-            enc_path = os.path.join(temp_dir, f"chunk_{order}.enc")
-            dec_path = os.path.join(temp_dir, f"chunk_{order}.dec")
+            chunk_buffer = io.BytesIO()
+            downloader = MediaIoBaseDownload(chunk_buffer, request)
+            done = False
+            while done is False:
+                _, done = downloader.next_chunk()
             
-            with open(enc_path, 'wb') as f:
-                downloader = MediaIoBaseDownload(f, request)
-                done = False
-                while done is False:
-                    _, done = downloader.next_chunk()
-            
-            with open(enc_path, 'rb') as f_in:
-                decrypted_data = cipher.decrypt(f_in.read())
-                with open(dec_path, 'wb') as f_out:
-                    f_out.write(decrypted_data)
-            
-            os.remove(enc_path)
-            return {"order": order, "path": dec_path}
+            # Decrypt in-memory
+            decrypted_data = cipher.decrypt(chunk_buffer.getvalue())
+            return {"order": order, "data": decrypted_data}
         except Exception as e:
             UI.status(f"fail: chunk {order}: {e}", success=False)
             return None
@@ -184,12 +187,10 @@ class DistributedStorageManager:
         file_info = self.registry[remote_name]
         chunks = sorted(file_info['chunks'], key=lambda x: x['order'])
         num_chunks = len(chunks)
-        num_accounts = len(acc_manager.creds_list)
         
-        UI.info(f"fetching {num_chunks} chunks...")
+        UI.info(f"fetching {num_chunks} chunks (In-Memory)...")
         
-        temp_dir = tempfile.mkdtemp()
-        chunk_paths = [None] * num_chunks
+        chunk_data_map = [None] * num_chunks
         completed = 0
         
         try:
@@ -199,30 +200,30 @@ class DistributedStorageManager:
                 for chunk in chunks:
                     acc_idx = chunk['account_id']
                     creds = acc_manager.creds_list[acc_idx]
-                    download_tasks.append(executor.submit(self._download_chunk_task, creds, chunk['drive_id'], chunk['order'], temp_dir))
+                    download_tasks.append(executor.submit(self._download_chunk_task, creds, chunk['drive_id'], chunk['order'], acc_idx))
                 
                 for future in concurrent.futures.as_completed(download_tasks):
                     res = future.result()
                     if res:
-                        chunk_paths[res['order']] = res['path']
+                        chunk_data_map[res['order']] = res['data']
                         completed += 1
                         UI.progress_bar(completed, num_chunks, prefix="downloading")
 
-            if None in chunk_paths:
+            if None in chunk_data_map:
                 UI.status("failed to retrieve all chunks", success=False)
                 return False
 
             UI.info("assembling stream...")
             with open(local_path, 'wb') as output_f:
-                for path in chunk_paths:
-                    with open(path, 'rb') as cf:
-                        shutil.copyfileobj(cf, output_f)
+                for data in chunk_data_map:
+                    output_f.write(data)
                 
             UI.status("reassembled successfully")
             return True
 
-        finally:
-            shutil.rmtree(temp_dir)
+        except Exception as e:
+            UI.status(f"critical download error: {e}", success=False)
+            return False
 
     def delete_distributed(self, remote_name, acc_manager):
         """Permanently deletes a distributed file and all its chunks from the cloud."""
@@ -238,9 +239,9 @@ class DistributedStorageManager:
         UI.info(f"deleting {num_chunks} chunks from drive...")
         completed = 0
         
-        def _delete_chunk_task(creds, drive_id, order):
+        def _delete_chunk_task(creds, drive_id, order, acc_idx):
             try:
-                service = build("drive", "v3", credentials=creds)
+                service = self._get_service(creds, acc_idx)
                 service.files().delete(fileId=drive_id).execute()
                 return order
             except Exception as e:
@@ -254,7 +255,7 @@ class DistributedStorageManager:
                 acc_idx = chunk['account_id']
                 if acc_idx < len(acc_manager.creds_list):
                     creds = acc_manager.creds_list[acc_idx]
-                    delete_tasks.append(executor.submit(_delete_chunk_task, creds, chunk['drive_id'], chunk['order']))
+                    delete_tasks.append(executor.submit(_delete_chunk_task, creds, chunk['drive_id'], chunk['order'], acc_idx))
             
             for future in concurrent.futures.as_completed(delete_tasks):
                 res = future.result()
