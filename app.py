@@ -163,12 +163,8 @@ def main():
             
         elif choice == '7': # Mkdir (Distributed)
             folder_name = input(f"{UI.DIM}› folder name:{UI.RESET} ")
-            new_ids = dist_manager.mkdir_distributed(folder_name, acc_manager, parent_ids_map=current_ids_map)
-            if new_ids:
-                # Add to registry using the full virtual path
-                path_key = f"{current_folder_name}/{folder_name}"
-                dist_manager.folder_registry[path_key] = new_ids
-                dist_manager._save_json(dist_manager.folder_registry_path, dist_manager.folder_registry)
+            path_key = f"{current_folder_name}/{folder_name}"
+            dist_manager.mkdir_distributed(folder_name, acc_manager, path_key, parent_ids_map=current_ids_map)
             
         elif choice == '8': # Accounts
             while True:
