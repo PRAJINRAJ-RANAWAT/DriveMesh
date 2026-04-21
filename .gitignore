@@ -5,3 +5,5 @@ folders_registry.json
 accounts_config.json
 credentials.json
 __pycache__
+temp_uploads/
+temp_downloads/

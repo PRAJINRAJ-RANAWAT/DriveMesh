@@ -1,12 +1,26 @@
 import os
 import time
+import tempfile
+import shutil
+from flask import Flask, render_template, request, jsonify, send_file
 from auth_manager import AccountManager
 from storage_manager import DistributedStorageManager
-from drive_helpers import list_files_selectable, create_folder
-from ui_utils import UI
+from config import BLOCK_SIZE
 
-def migrate_registry(dist_manager):
-    """Ensures all registry entries have a parent_path field."""
+app = Flask(__name__)
+
+# ---------------------------------------------------------------------------
+# Global state — initialized once on startup
+# ---------------------------------------------------------------------------
+acc_manager = None
+dist_manager = None
+
+def init_managers():
+    """Initialize the account and storage managers."""
+    global acc_manager, dist_manager
+    acc_manager = AccountManager()
+    dist_manager = DistributedStorageManager()
+    # Migration: ensure all registry entries have a parent_path
     updated = False
     for name, info in dist_manager.registry.items():
         if 'parent_path' not in info:
@@ -15,172 +29,249 @@ def migrate_registry(dist_manager):
     if updated:
         dist_manager._save_json(dist_manager.registry_path, dist_manager.registry)
 
-def main():
-    UI.clear()
-    UI.header()
+# ---------------------------------------------------------------------------
+# Page Routes
+# ---------------------------------------------------------------------------
+@app.route('/')
+def index():
+    return render_template('index.html')
+
+# ---------------------------------------------------------------------------
+# API: File Listing
+# ---------------------------------------------------------------------------
+@app.route('/api/files')
+def api_list_files():
+    """Return files and folders at the given virtual path."""
+    path = request.args.get('path', 'root')
+    items = []
+
+    # 1. Find subfolders
+    for folder_path, ids in dist_manager.folder_registry.items():
+        parts = folder_path.split('/')
+        parent = '/'.join(parts[:-1])
+        name = parts[-1]
+        if parent == path:
+            items.append({
+                'type': 'dir',
+                'name': name,
+                'path': folder_path,
+                'ids': ids,
+                'size': None,
+                'chunks': None,
+                'modified': _format_time(None)
+            })
+
+    # 2. Find files
+    for name, info in dist_manager.registry.items():
+        if info.get('parent_path') == path:
+            items.append({
+                'type': 'file',
+                'name': name,
+                'size': info['file_size'],
+                'chunks': len(info['chunks']),
+                'modified': _format_time(info.get('timestamp'))
+            })
+
+    return jsonify({'items': items, 'path': path})
+
+# ---------------------------------------------------------------------------
+# API: Upload
+# ---------------------------------------------------------------------------
+@app.route('/api/upload', methods=['POST'])
+def api_upload():
+    """Handle file upload — saves temp, then distributes."""
+    if 'file' not in request.files:
+        return jsonify({'success': False, 'error': 'No file provided'}), 400
+
+    file = request.files['file']
+    if file.filename == '':
+        return jsonify({'success': False, 'error': 'No file selected'}), 400
+
+    parent_path = request.form.get('parent_path', 'root')
+
+    # Build parent IDs map from folder registry
+    parent_ids_map = {}
+    if parent_path != 'root' and parent_path in dist_manager.folder_registry:
+        parent_ids_map = dist_manager.folder_registry[parent_path]
+
+    # Save to temp
+    temp_dir = os.path.join(os.path.dirname(__file__), 'temp_uploads')
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = os.path.join(temp_dir, file.filename)
+
+    try:
+        file.save(temp_path)
+        success = dist_manager.upload_distributed(
+            temp_path, file.filename, acc_manager,
+            parent_ids_map=parent_ids_map,
+            parent_path=parent_path
+        )
+        if success:
+            return jsonify({'success': True, 'name': file.filename})
+        else:
+            return jsonify({'success': False, 'error': 'Upload failed — check server logs'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+    finally:
+        # Cleanup temp file
+        if os.path.exists(temp_path):
+            os.remove(temp_path)
+
+# ---------------------------------------------------------------------------
+# API: Download
+# ---------------------------------------------------------------------------
+@app.route('/api/download/<path:filename>')
+def api_download(filename):
+    """Reassemble and stream a distributed file to the browser."""
+    if filename not in dist_manager.registry:
+        return jsonify({'success': False, 'error': f'File "{filename}" not in registry'}), 404
+
+    temp_dir = os.path.join(os.path.dirname(__file__), 'temp_downloads')
+    os.makedirs(temp_dir, exist_ok=True)
+    temp_path = os.path.join(temp_dir, filename)
+
+    try:
+        success = dist_manager.download_distributed(filename, temp_path, acc_manager)
+        if success:
+            return send_file(temp_path, as_attachment=True, download_name=filename)
+        else:
+            return jsonify({'success': False, 'error': 'Download reassembly failed'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# API: Delete
+# ---------------------------------------------------------------------------
+@app.route('/api/files/<path:filename>', methods=['DELETE'])
+def api_delete(filename):
+    """Delete a distributed file and all its chunks."""
+    try:
+        success = dist_manager.delete_distributed(filename, acc_manager)
+        if success:
+            return jsonify({'success': True})
+        else:
+            return jsonify({'success': False, 'error': 'Delete failed'}), 500
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# API: Create Folder
+# ---------------------------------------------------------------------------
+@app.route('/api/folders', methods=['POST'])
+def api_create_folder():
+    """Create a new distributed folder."""
+    data = request.get_json()
+    name = data.get('name', '').strip()
+    parent_path = data.get('parent_path', 'root')
+
+    if not name:
+        return jsonify({'success': False, 'error': 'Folder name is required'}), 400
+
+    path_key = f"{parent_path}/{name}"
+
+    # Check if folder already exists
+    if path_key in dist_manager.folder_registry:
+        return jsonify({'success': False, 'error': 'Folder already exists'}), 409
+
+    parent_ids_map = {}
+    if parent_path != 'root' and parent_path in dist_manager.folder_registry:
+        parent_ids_map = dist_manager.folder_registry[parent_path]
+
+    result = dist_manager.mkdir_distributed(name, acc_manager, path_key, parent_ids_map=parent_ids_map)
+    if result:
+        return jsonify({'success': True, 'path': path_key})
+    else:
+        return jsonify({'success': False, 'error': 'Folder creation failed'}), 500
+
+# ---------------------------------------------------------------------------
+# API: Accounts
+# ---------------------------------------------------------------------------
+@app.route('/api/accounts')
+def api_accounts():
+    """Return list of connected accounts."""
+    accounts = acc_manager.get_accounts_info()
+    return jsonify({'accounts': accounts})
+
+@app.route('/api/accounts/add', methods=['POST'])
+def api_add_account():
+    """Add a new Google Drive account (triggers OAuth flow)."""
+    try:
+        success = acc_manager.add_account()
+        if success:
+            accounts = acc_manager.get_accounts_info()
+            latest = accounts[-1] if accounts else {}
+            return jsonify({'success': True, 'name': latest.get('name', 'Unknown')})
+        else:
+            return jsonify({'success': False, 'error': 'Authentication failed or was cancelled'}), 400
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# API: Storage Stats
+# ---------------------------------------------------------------------------
+@app.route('/api/storage/stats')
+def api_storage_stats():
+    """Return aggregated storage statistics."""
+    file_count = len(dist_manager.registry)
+    folder_count = len(dist_manager.folder_registry)
     
-    acc_manager = AccountManager()
-    dist_manager = DistributedStorageManager()
+    total_bytes = 0
+    total_chunks = 0
+    for name, info in dist_manager.registry.items():
+        total_bytes += info.get('file_size', 0)
+        total_chunks += len(info.get('chunks', []))
+
+    return jsonify({
+        'files': file_count,
+        'folders': folder_count,
+        'total_size': _format_size(total_bytes),
+        'total_bytes': total_bytes,
+        'chunks': total_chunks
+    })
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+def _format_size(bytes_val):
+    """Format bytes into human-readable string."""
+    if not bytes_val:
+        return '0 B'
+    units = ['B', 'KB', 'MB', 'GB', 'TB']
+    i = 0
+    val = float(bytes_val)
+    while val >= 1024 and i < len(units) - 1:
+        val /= 1024
+        i += 1
+    return f"{val:.1f} {units[i]}" if i > 0 else f"{int(val)} B"
+
+def _format_time(timestamp):
+    """Format a Unix timestamp into a user-friendly string."""
+    if not timestamp:
+        return 'Today'
     
-    migrate_registry(dist_manager)
+    now = time.time()
+    diff = now - timestamp
     
-    if not acc_manager.creds_list:
-        UI.status("no accounts found. please add one.", success=False)
-        if not acc_manager.add_account():
-            UI.status("auth failed. exiting.", success=False)
-            return
+    if diff < 60:
+        return 'Just now'
+    elif diff < 3600:
+        mins = int(diff / 60)
+        return f'{mins}m ago'
+    elif diff < 86400:
+        hours = int(diff / 3600)
+        return f'{hours}h ago'
+    elif diff < 172800:
+        return 'Yesterday'
+    elif diff < 604800:
+        days = int(diff / 86400)
+        return f'{days}d ago'
+    else:
+        return time.strftime('%b %d, %Y', time.localtime(timestamp))
 
-    # Virtual Folder context
-    current_folder_name = 'root'
-    # IDs mapped by account index (as strings)
-    current_ids_map = {} 
-    folder_stack = [] # (name, ids_map)
-    
-    while True:
-        UI.location(len(acc_manager.creds_list), current_folder_name)
-        
-        print(f"\n  {UI.DIM}[1]{UI.RESET} explore   {UI.DIM}[2]{UI.RESET} upload    {UI.DIM}[3]{UI.RESET} pull")
-        print(f"  {UI.DIM}[4]{UI.RESET} move      {UI.DIM}[5]{UI.RESET} delete    {UI.DIM}[6]{UI.RESET} registry")
-        print(f"  {UI.DIM}[7]{UI.RESET} mkdir     {UI.DIM}[8]{UI.RESET} accounts  {UI.DIM}[9]{UI.RESET} exit")
-        
-        choice = input(f"\n{UI.DIM}› mode:{UI.RESET} ")
-        
-        if choice == '1': # Virtual Explorer
-            while True:
-                UI.clear()
-                UI.header()
-                UI.location(len(acc_manager.creds_list), current_folder_name)
-                print(f"\n {UI.DIM}browsing virtual distributed registry{UI.RESET}")
-                
-                display_items = []
-                if current_folder_name != 'root':
-                    display_items.append({'type': 'back', 'name': '..'})
-                
-                # 1. Find virtual subfolders
-                # folders_registry keys are paths like "root/abc"
-                for path, ids in dist_manager.folder_registry.items():
-                    parent = "/".join(path.split("/")[:-1])
-                    name = path.split("/")[-1]
-                    if parent == current_folder_name:
-                        display_items.append({'type': 'dir', 'name': name, 'ids': ids, 'path': path})
-                
-                # 2. Find virtual files
-                for name, info in dist_manager.registry.items():
-                    if info.get('parent_path') == current_folder_name:
-                        display_items.append({'type': 'file', 'name': name, 'size': info['file_size']})
-
-                if not display_items:
-                    print(f"\n {UI.DIM}this virtual folder is empty.{UI.RESET}")
-                else:
-                    for i, item in enumerate(display_items):
-                        if item['type'] == 'dir':
-                            color = UI.CYAN
-                            label = "dir "
-                        elif item['type'] == 'file':
-                            color = UI.GREEN
-                            label = "file"
-                        else:
-                            color = UI.DIM
-                            label = "back"
-                        
-                        size_str = f" ({item['size']/(1024*1024):.1f} MB)" if item['type'] == 'file' else ""
-                        print(f" {UI.DIM}{i:2}{UI.RESET} {color}{label}{UI.RESET} {item['name']}{UI.DIM}{size_str}{UI.RESET}")
-                
-                v_choice = input(f"\n{UI.DIM}› select index (q):{UI.RESET} ")
-                if v_choice.lower() == 'q': break
-                
-                try:
-                    idx = int(v_choice)
-                    if 0 <= idx < len(display_items):
-                        selected = display_items[idx]
-                        if selected['type'] == 'back':
-                            if folder_stack:
-                                current_folder_name, current_ids_map = folder_stack.pop()
-                            else:
-                                current_folder_name, current_ids_map = 'root', {}
-                        elif selected['type'] == 'dir':
-                            folder_stack.append((current_folder_name, current_ids_map.copy()))
-                            current_folder_name = selected['path']
-                            current_ids_map = selected['ids']
-                        else:
-                            UI.info(f"selected file: {selected['name']}")
-                            print(f"  {UI.DIM}[1]{UI.RESET} pull  {UI.DIM}[2]{UI.RESET} move  {UI.DIM}[3]{UI.RESET} delete  {UI.DIM}[4]{UI.RESET} back")
-                            op = input(f"\n{UI.DIM}› action:{UI.RESET} ")
-                            if op == '1' or op == '2':
-                                local_p = input(f"{UI.DIM}› save as (default: downloaded_{selected['name']}):{UI.RESET} ")
-                                if not local_p: local_p = f"downloaded_{selected['name']}"
-                                if dist_manager.download_distributed(selected['name'], local_p, acc_manager):
-                                    if op == '2': dist_manager.delete_distributed(selected['name'], acc_manager)
-                            elif op == '3':
-                                dist_manager.delete_distributed(selected['name'], acc_manager)
-                    else: UI.status("invalid index", success=False)
-                except ValueError: pass
-            UI.clear()
-            UI.header()
-
-        elif choice == '2': # Upload
-            local_path = input(f"{UI.DIM}› path:{UI.RESET} ").strip('"')
-            if not os.path.exists(local_path):
-                UI.status("file not found", success=False)
-                continue
-            remote_name = input(f"{UI.DIM}› name (default: {os.path.basename(local_path)}):{UI.RESET} ")
-            if not remote_name: remote_name = os.path.basename(local_path)
-            
-            # Pass the current IDs map and the virtual path
-            dist_manager.upload_distributed(local_path, remote_name, acc_manager, 
-                                           parent_ids_map=current_ids_map, 
-                                           parent_path=current_folder_name)
-            
-        elif choice == '3' or choice == '4': # Pull (3) or Move (4)
-            files = dist_manager.list_distributed_files()
-            if files:
-                idx_choice = input(f"\n{UI.DIM}› select index:{UI.RESET} ")
-                try:
-                    idx = int(idx_choice)
-                    if 0 <= idx < len(files):
-                        remote_name = files[idx]
-                        local_path = input(f"{UI.DIM}› save as (default: downloaded_{remote_name}):{UI.RESET} ")
-                        if not local_path: local_path = f"downloaded_{remote_name}"
-                        
-                        if dist_manager.download_distributed(remote_name, local_path, acc_manager):
-                            if choice == '4': # Move
-                                UI.info(f"move: purging cloud storage for {remote_name}...")
-                                dist_manager.delete_distributed(remote_name, acc_manager)
-                except ValueError: UI.status("numeric input required", success=False)
-                
-        elif choice == '5': # Delete
-            files = dist_manager.list_distributed_files()
-            if files:
-                idx_choice = input(f"\n{UI.DIM}› select index to delete:{UI.RESET} ")
-                try:
-                    idx = int(idx_choice)
-                    if 0 <= idx < len(files):
-                        dist_manager.delete_distributed(files[idx], acc_manager)
-                except ValueError: UI.status("numeric input required", success=False)
-
-        elif choice == '6':
-            dist_manager.list_distributed_files()
-            
-        elif choice == '7': # Mkdir (Distributed)
-            folder_name = input(f"{UI.DIM}› folder name:{UI.RESET} ")
-            path_key = f"{current_folder_name}/{folder_name}"
-            dist_manager.mkdir_distributed(folder_name, acc_manager, path_key, parent_ids_map=current_ids_map)
-            
-        elif choice == '8': # Accounts
-            while True:
-                UI.info("account management")
-                accounts = acc_manager.get_accounts_info()
-                for i, acc in enumerate(accounts):
-                    print(f"  {UI.DIM}[{i}]{UI.RESET} {acc['name']} {UI.DIM}({acc['token_file']}){UI.RESET}")
-                print(f"\n  {UI.DIM}[1]{UI.RESET} add account  {UI.DIM}[2]{UI.RESET} back")
-                subchoice = input(f"\n{UI.DIM}› action:{UI.RESET} ")
-                if subchoice == '1': acc_manager.add_account()
-                elif subchoice == '2': break
-
-        elif choice == '9' or choice == 'exit':
-            UI.status("session ended")
-            break
-        else: UI.status("unknown command", success=False)
-
-if __name__ == "__main__":
-    main()
+# ---------------------------------------------------------------------------
+# Entry Point
+# ---------------------------------------------------------------------------
+if __name__ == '__main__':
+    init_managers()
+    print("\n  [*] DriveMesh is running at http://localhost:5000\n")
+    app.run(debug=True, port=5000, use_reloader=False)
