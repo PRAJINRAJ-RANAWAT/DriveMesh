@@ -111,6 +111,8 @@ def api_upload():
         else:
             return jsonify({'success': False, 'error': 'Upload failed — check server logs'}), 500
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
     finally:
         # Cleanup temp file

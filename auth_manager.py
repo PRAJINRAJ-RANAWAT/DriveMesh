@@ -6,7 +6,7 @@ from google_auth_oauthlib.flow import InstalledAppFlow
 from config import SCOPES
 
 def auth(token_file="token.json"):
-    """Handles Google Drive API authentication."""
+    """Handles Google Drive API authentication for existing tokens."""
     creds = None
     if os.path.exists(token_file):
         creds = Credentials.from_authorized_user_file(token_file, SCOPES)
@@ -25,6 +25,20 @@ def auth(token_file="token.json"):
         with open(token_file, "w") as token:
             token.write(creds.to_json())
 
+    return creds
+
+def auth_new_account(token_file):
+    """Forces Google account picker + consent screen for adding a NEW account.
+    Always shows the login page so the user can pick a different Google account."""
+    flow = InstalledAppFlow.from_client_secrets_file("credentials.json", SCOPES)
+    creds = flow.run_local_server(
+        port=0,
+        prompt='select_account'  # Force account picker every time
+    )
+    
+    with open(token_file, "w") as token:
+        token.write(creds.to_json())
+    
     return creds
 
 class AccountManager:
@@ -72,9 +86,14 @@ class AccountManager:
 
     def add_account_web(self, account_name="Account"):
         """Web-friendly version: accepts name as parameter instead of input()."""
+        # Find next unused token index — skip orphaned token files from failed attempts
         account_index = len(self.accounts)
         token_file = f"token_{account_index}.json"
-        creds = auth(token_file)
+        while os.path.exists(token_file):
+            account_index += 1
+            token_file = f"token_{account_index}.json"
+        
+        creds = auth_new_account(token_file)
         if creds:
             self.accounts.append({
                 'name': account_name,

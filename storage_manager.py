@@ -45,8 +45,8 @@ class DistributedStorageManager:
             
             encrypted_chunk = cipher.encrypt(chunk_data)
             
-            # 2. Upload to Drive
-            service = self._get_service(creds, acc_idx)
+            # 2. Upload to Drive — build per-thread service (not thread-safe to share)
+            service = build("drive", "v3", credentials=creds)
             file_metadata = {"name": chunk_name, "appProperties": {"type": "chunk", "order": str(chunk_idx)}}
             if parent_id:
                 file_metadata["parents"] = [parent_id]

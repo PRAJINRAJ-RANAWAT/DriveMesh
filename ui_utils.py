@@ -1,4 +1,11 @@
 import os
+import sys
+import io
+
+# Force UTF-8 output on Windows to prevent UnicodeEncodeError with ANSI/symbols
+if sys.platform == 'win32':
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
 
 class UI:
     # ANSI Colors
@@ -20,19 +27,19 @@ class UI:
 
     @staticmethod
     def status(msg, success=True):
-        icon = f"{UI.GREEN}✔{UI.RESET}" if success else f"{UI.RED}✘{UI.RESET}"
+        icon = f"{UI.GREEN}[OK]{UI.RESET}" if success else f"{UI.RED}[ERR]{UI.RESET}"
         print(f" {icon} {msg}")
 
     @staticmethod
     def info(msg):
-        print(f" {UI.DIM}●{UI.RESET} {msg}")
+        print(f" {UI.DIM}*{UI.RESET} {msg}")
 
     @staticmethod
     def progress_bar(current, total, prefix='', length=30):
         percent = (current / total) * 100
         filled = int(length * current // total)
-        bar = f"{UI.CYAN}■{UI.RESET}" * filled + f"{UI.DIM}□{UI.RESET}" * (length - filled)
-        print(f"\r {UI.DIM}› {prefix}{UI.RESET} [{bar}] {UI.BOLD}{percent:3.0f}%{UI.RESET}", end='', flush=True)
+        bar = f"{UI.CYAN}#{UI.RESET}" * filled + f"{UI.DIM}-{UI.RESET}" * (length - filled)
+        print(f"\r {UI.DIM}> {prefix}{UI.RESET} [{bar}] {UI.BOLD}{percent:3.0f}%{UI.RESET}", end='', flush=True)
         if current == total:
             print() # Move to next line on completion
 
