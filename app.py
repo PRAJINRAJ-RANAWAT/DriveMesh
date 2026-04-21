@@ -211,6 +211,76 @@ def api_add_account():
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
+@app.route('/api/accounts/<int:account_id>', methods=['DELETE'])
+def api_remove_account(account_id):
+    """Remove a connected Google Drive account."""
+    try:
+        if account_id < 0 or account_id >= len(acc_manager.accounts):
+            return jsonify({'success': False, 'error': 'Invalid account index'}), 400
+        
+        acc = acc_manager.accounts[account_id]
+        token_file = acc.get('token_file', '')
+        
+        # Remove token file
+        if token_file and os.path.exists(token_file):
+            os.remove(token_file)
+        
+        # Remove from config and creds
+        acc_manager.accounts.pop(account_id)
+        if account_id < len(acc_manager.creds_list):
+            acc_manager.creds_list.pop(account_id)
+        acc_manager._save_config()
+        
+        return jsonify({'success': True})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+# ---------------------------------------------------------------------------
+# API: Delete Folder
+# ---------------------------------------------------------------------------
+@app.route('/api/folders/<path:folder_path>', methods=['DELETE'])
+def api_delete_folder(folder_path):
+    """Delete a virtual folder and all its contents from the registry."""
+    try:
+        # Find and delete all files inside this folder (recursively)
+        files_to_delete = []
+        for name, info in list(dist_manager.registry.items()):
+            parent = info.get('parent_path', 'root')
+            if parent == folder_path or parent.startswith(folder_path + '/'):
+                files_to_delete.append(name)
+        
+        for fname in files_to_delete:
+            dist_manager.delete_distributed(fname, acc_manager)
+        
+        # Find and delete all subfolders
+        folders_to_delete = []
+        for path_key in list(dist_manager.folder_registry.keys()):
+            if path_key == folder_path or path_key.startswith(folder_path + '/'):
+                folders_to_delete.append(path_key)
+        
+        # Delete Drive folders for each account
+        for path_key in folders_to_delete:
+            ids_map = dist_manager.folder_registry.get(path_key, {})
+            for acc_idx_str, drive_id in ids_map.items():
+                try:
+                    acc_idx = int(acc_idx_str)
+                    if acc_idx < len(acc_manager.creds_list):
+                        from googleapiclient.discovery import build as build_svc
+                        service = build_svc("drive", "v3", credentials=acc_manager.creds_list[acc_idx])
+                        service.files().delete(fileId=drive_id).execute()
+                except Exception:
+                    pass  # Folder may already be deleted or inaccessible
+            
+            del dist_manager.folder_registry[path_key]
+        
+        dist_manager._save_json(dist_manager.folder_registry_path, dist_manager.folder_registry)
+        
+        return jsonify({'success': True, 'deleted_files': len(files_to_delete), 'deleted_folders': len(folders_to_delete)})
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return jsonify({'success': False, 'error': str(e)}), 500
+
 # ---------------------------------------------------------------------------
 # API: Storage Stats
 # ---------------------------------------------------------------------------
