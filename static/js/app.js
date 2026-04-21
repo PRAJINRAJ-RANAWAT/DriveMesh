@@ -29,6 +29,9 @@ const App = {
     document.getElementById('btn-upload').addEventListener('click', () => this.openModal('upload-modal'));
     document.getElementById('upload-form').addEventListener('submit', (e) => { e.preventDefault(); this.uploadFile(); });
 
+    // Account
+    document.getElementById('account-form').addEventListener('submit', (e) => { e.preventDefault(); this.submitAddAccount(); });
+
     // Upload zone drag/drop
     const zone = document.getElementById('upload-zone');
     const fileInput = document.getElementById('file-input');
@@ -400,8 +403,19 @@ const App = {
   },
 
   async addAccount() {
-    this.showToast('Adding Account', 'Opening Google authentication...', 'info');
-    const res = await this.apiPost('/api/accounts/add', {});
+    this.openModal('account-modal');
+  },
+
+  async submitAddAccount() {
+    const input = document.getElementById('account-name-input');
+    const name = input.value.trim();
+    if (!name) return;
+
+    this.closeModal('account-modal');
+    input.value = '';
+
+    this.showToast('Adding Account', 'Opening Google authentication — complete sign-in in the popup...', 'info');
+    const res = await this.apiPost('/api/accounts/add', { name: name });
     if (res && res.success) {
       this.showToast('Account Added', `"${res.name}" connected successfully`, 'success');
       await Promise.all([this.loadAccounts(), this.loadStats()]);
