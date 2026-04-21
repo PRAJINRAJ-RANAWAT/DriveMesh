@@ -163,7 +163,7 @@ class DistributedStorageManager:
     def _download_chunk_task(self, creds, chunk_id, order, acc_idx):
         """Worker task for parallel chunk download and decryption (In-Memory)."""
         try:
-            service = self._get_service(creds, acc_idx)
+            service = build("drive", "v3", credentials=creds)
             request = service.files().get_media(fileId=chunk_id)
             
             chunk_buffer = io.BytesIO()
@@ -241,7 +241,7 @@ class DistributedStorageManager:
         
         def _delete_chunk_task(creds, drive_id, order, acc_idx):
             try:
-                service = self._get_service(creds, acc_idx)
+                service = build("drive", "v3", credentials=creds)
                 service.files().delete(fileId=drive_id).execute()
                 return order
             except Exception as e:
