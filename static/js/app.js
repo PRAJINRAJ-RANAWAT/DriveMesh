@@ -195,7 +195,11 @@ const App = {
               <button class="file-action-btn danger" onclick="event.stopPropagation(); App.deleteFile('${this.escapeHtml(item.name)}')" title="Delete">
                 ${this.icons.trash}
               </button>
-            ` : ''}
+            ` : `
+              <button class="file-action-btn danger" onclick="event.stopPropagation(); App.deleteFolder('${this.escapeHtml(item.path)}', '${this.escapeHtml(item.name)}')" title="Delete Folder">
+                ${this.icons.trash}
+              </button>
+            `}
           </td>
         </tr>
       `;
@@ -208,10 +212,13 @@ const App = {
       list.innerHTML = '<li class="account-item" style="color:var(--text-muted);">No accounts connected</li>';
       return;
     }
-    list.innerHTML = this.accounts.map(acc => `
+    list.innerHTML = this.accounts.map((acc, idx) => `
       <li class="account-item">
         <span class="account-dot"></span>
-        ${this.escapeHtml(acc.name)}
+        <span style="flex:1;">${this.escapeHtml(acc.name)}</span>
+        <button class="account-remove-btn" onclick="event.stopPropagation(); App.removeAccount(${idx}, '${this.escapeHtml(acc.name)}')" title="Remove account">
+          &times;
+        </button>
       </li>
     `).join('');
   },
@@ -387,6 +394,31 @@ const App = {
       }
     } catch (err) {
       this.showToast('Download error', err.message, 'error');
+    }
+  },
+
+  async deleteFolder(path, name) {
+    if (!confirm(`Delete folder "${name}"? This will remove the folder and ALL its contents from connected drives.`)) return;
+
+    this.showToast('Deleting folder', `Removing "${name}" and its contents...`, 'info');
+    const res = await this.apiDelete(`/api/folders/${encodeURIComponent(path)}`);
+    if (res && res.success) {
+      this.showToast('Folder deleted', `"${name}" and ${res.deleted_files || 0} file(s) removed`, 'success');
+      await Promise.all([this.loadFiles(), this.loadStats()]);
+    } else {
+      this.showToast('Delete failed', res?.error || 'Unknown error', 'error');
+    }
+  },
+
+  async removeAccount(index, name) {
+    if (!confirm(`Remove account "${name}"? The token will be deleted.`)) return;
+
+    const res = await this.apiDelete(`/api/accounts/${index}`);
+    if (res && res.success) {
+      this.showToast('Account removed', `"${name}" disconnected`, 'success');
+      await Promise.all([this.loadAccounts(), this.loadStats()]);
+    } else {
+      this.showToast('Error', res?.error || 'Failed to remove account', 'error');
     }
   },
 
