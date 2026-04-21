@@ -196,6 +196,22 @@
       </form>
     </div>
   </div>
+  <!-- ===== Add Account Modal ===== -->
+  <div id="account-modal" class="modal-overlay">
+    <div class="modal">
+      <div class="modal-title">Add Google Account</div>
+      <p style="color:var(--text-secondary); font-size:0.85rem; margin-bottom:16px;">
+        Enter a nickname for this account. After clicking "Connect", complete the Google sign-in in the popup window.
+      </p>
+      <form id="account-form">
+        <input type="text" id="account-name-input" class="modal-input" placeholder="e.g. shreyash_personal" autocomplete="off" required>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel">Cancel</button>
+          <button type="submit" class="btn-confirm">Connect</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <!-- Toast Container -->
   <div id="toast-container" class="toast-container"></div>

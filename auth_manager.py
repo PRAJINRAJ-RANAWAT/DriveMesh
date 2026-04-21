@@ -70,5 +70,21 @@ class AccountManager:
             return True
         return False
 
+    def add_account_web(self, account_name="Account"):
+        """Web-friendly version: accepts name as parameter instead of input()."""
+        account_index = len(self.accounts)
+        token_file = f"token_{account_index}.json"
+        creds = auth(token_file)
+        if creds:
+            self.accounts.append({
+                'name': account_name,
+                'token_file': token_file,
+                'id': account_index
+            })
+            self._save_config()
+            self.creds_list.append(creds)
+            return True
+        return False
+
     def get_accounts_info(self):
         return self.accounts

@@ -196,11 +196,14 @@ def api_accounts():
 def api_add_account():
     """Add a new Google Drive account (triggers OAuth flow)."""
     try:
-        success = acc_manager.add_account()
+        data = request.get_json() or {}
+        account_name = data.get('name', '').strip()
+        if not account_name:
+            account_name = f"Account {len(acc_manager.accounts) + 1}"
+        
+        success = acc_manager.add_account_web(account_name)
         if success:
-            accounts = acc_manager.get_accounts_info()
-            latest = accounts[-1] if accounts else {}
-            return jsonify({'success': True, 'name': latest.get('name', 'Unknown')})
+            return jsonify({'success': True, 'name': account_name})
         else:
             return jsonify({'success': False, 'error': 'Authentication failed or was cancelled'}), 400
     except Exception as e:
