@@ -1,7 +1,5 @@
 # Distributed Google Drive Storage
 
-![DriveMesh Demo](demo.png)
-
 This project is a Python CLI app that splits files into chunks, encrypts each chunk, and distributes those chunks across multiple Google Drive accounts.
 
 ## What The App Does
