@@ -1,3 +1,3 @@
-Inter (https://rsms.me/inter/) and Space Grotesk (https://github.com/floriankarsten/space-grotesk)
+Inter (https://rsms.me/inter/), JetBrains Mono (https://www.jetbrains.com/lp/mono/) and Space Grotesk (https://github.com/floriankarsten/space-grotesk)
 are licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
 Files are the latin-subset variable woff2 builds served by Google Fonts.
