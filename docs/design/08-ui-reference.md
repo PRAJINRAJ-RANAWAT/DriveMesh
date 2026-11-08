@@ -79,5 +79,26 @@ decoration (underlines, glows, packets). Orange headlines and stats live on char
 - **Eyebrows:** mono micro-label in a hairline-bordered chip.
 - **Focus:** 2 px accent-ink outline + 3 px offset on every interactive element.
 
-## 3. Screenshots
-`ui-reference/before-*.png` (the Midnight Vault UI) and `ui-reference/after-*.png` (this design), at 1440 px and 390 px.
+## 3. Screenshots (`docs/design/ui-reference/`)
+- **Before** (previous dark theme): `before-{landing,login,app,status}-{desktop,mobile}.png`.
+- **After, landing page:** captured viewport by viewport while scrolling, because the durability scene is pinned:
+  - `after-landing-{desktop,mobile}-NN-*.png`, at 1440 × 900 and 390 × 844
+  - `after-landing-360-hero.png` at 360 × 760
+  - `04-scene0…3` are the four phases of the scroll-driven "account dies" story.
+- **After, signed-in pages:** `after-{login,app,files,accounts,status}-{desktop,mobile}.png`.
+- **Uploads:** `after-upload-desktop.png` (per-chunk status mid-transfer) and `after-upload-mobile-done.png`.
+
+## 4. Implementation notes
+- **Files:**
+  - `static/css/tokens.css`: the only place colours, type, space, radii, shadows and motion are defined
+  - `base.css` (shared components), `landing.css`, `app.css`
+  - vanilla JS in `static/js/`
+- **CSP unchanged** (`script-src 'self'; style-src 'self'`). No inline scripts or style attributes; dynamic widths and transforms are set through the CSSOM.
+  The CSP even blocks Playwright's string-eval helpers, which is how we know it's enforced.
+- **Motion:**
+  - SVG `animateMotion` for the hero packets
+  - CSS keyframes for floating nodes and pulses
+  - IntersectionObserver for staggered reveals
+  - one rAF-throttled scroll handler drives the pinned durability scene
+  - `prefers-reduced-motion` turns all of it off and shows the final, healed state.
+- **Not used:** the supplied 3D/PNG assets show Google's Drive logo, so they're excluded per the brief. The drive visuals are original SVG.
