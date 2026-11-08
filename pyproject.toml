@@ -55,8 +55,8 @@ target-version = "py312"
 extend-exclude = ["legacy"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
-ignore = ["RUF012"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "BLE"]
+ignore = ["RUF012", "RUF005", "UP047"]
 
 [tool.ruff.lint.per-file-ignores]
 "tests/*" = ["B011"]
@@ -64,6 +64,7 @@ ignore = ["RUF012"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "-q"
+pythonpath = ["."]
 markers = [
   "slow: long-running tests (chaos, benchmarks)",
 ]

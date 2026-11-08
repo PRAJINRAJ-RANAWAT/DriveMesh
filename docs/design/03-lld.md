@@ -250,12 +250,12 @@ UPDATE jobs SET state='running', lease_owner=:me, lease_expires_at=:now+:visibil
 ```mermaid
 flowchart LR
   KEK["KEK (master key, 256-bit)<br/>env DRIVEMESH_MASTER_KEYS<br/>id → key, one active"] -->|AES-GCM wrap, AAD=file_id| WDEK[wrapped DEK in files row]
-  DEK["DEK (random 256-bit per file version)"] --> ENC["AES-256-GCM per chunk<br/>nonce 96-bit random<br/>AAD = 'dm1|file_id|version|idx|chunk_count'"]
+  DEK["DEK (random 256-bit per file version)"] --> ENC["AES-256-GCM per chunk<br/>nonce 96-bit random<br/>AAD = 'dm1|file_id|version|idx|last'"]
   ENC --> OBJ["object = 'DMC1' ‖ nonce ‖ ciphertext ‖ tag"]
   KEK -->|AES-GCM, AAD=account_id| TOK[OAuth tokens in linked_accounts.secret_blob]
   KEK -->|AES-GCM, AAD='meta'| SNAP[metadata snapshots]
 ```
-- **AEAD with associated data** binds every chunk to (file id, version, index, count). Swapping, reordering, replaying a chunk from another
+- **AEAD with associated data** binds every chunk to (file id, version, index, is-last flag: the STREAM construction, Hoang–Reyhanitabar–Rogaway–Vizár 2015). Swapping, reordering, replaying a chunk from another
   file, or truncating the chunk list fails authentication (fixes W-10).
 - **Overhead:** 32 bytes per object (vs Fernet's +33 %).
 - **Nonce safety:** random 96-bit nonces under a per-file key. The NIST limit of 2³² messages per key with random nonces is far beyond the chunks in any one file.
