@@ -227,3 +227,28 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 - Accessibility first measured 96: the dimmed story words used 14 % opacity, which fails contrast.
   They now use a `--color-ink-faint` token chosen to pass the 3:1 large-text minimum (3.3:1 light, 3.5:1 dark), which brought it back to 100.
 - The "text compression" audit now passes.
+
+## R-014: Query plans of the hot metadata paths (`local`, SQLite 3.50.3)
+- Method:
+  - Migrate a fresh SQLite DB with Alembic (head `d5a37403a62e`) and bulk-insert 20 files × 1,000 chunks × 2 replicas (39,980 replica rows, 0.1 % under-replicated).
+  - Run `EXPLAIN QUERY PLAN` and time each query once, **with and without `ANALYZE`**.
+  - Queries are compiled from the real SQLAlchemy code: `namespace.live_file`, `FileReader._load_chunks`, `under_replicated_query`, `_replicas_with_state`, the job claim, the scrub pick, and the GC lease scan.
+  - Single run, 2026-11-09. The script is not in the repo (it was a one-off for 08-how-it-works.md).
+- The schema built by the migrations and the SQLAlchemy models match: `alembic.autogenerate.compare_metadata` reports no diff.
+
+| Query | Index used, after `ANALYZE` | Index used, no statistics | Time with / without stats |
+|---|---|---|---|
+| Path lookup (`live_file`) | `ux_files_live_path` | same | 0.1 / 0.2 ms |
+| Download: chunks of a file | `uq_chunk_file_idx` (SQLite names it `sqlite_autoindex_chunks_2`) | same | 1.1 / 1.1 ms |
+| **Download: `ok` replicas of a file** | `ix_chunks_file_id` → `ix_replicas_chunk_state` | **`ix_replicas_state_verified (state=?)`, which visits every `ok` replica in the DB** | **3.9 / 19.6 ms** |
+| Repair scan (`under_replicated`, limit 100) | `ix_chunks_file_id` + `ix_replicas_chunk_state` in the correlated subquery | same (via `ix_files_state_lease`) | 29.1 / 29.7 ms |
+| Repair: replicas of one chunk | `ix_replicas_chunk_state` | same | 0.1 / 0.1 ms |
+| Job claim | `ix_jobs_claim` | same | 0.2 / 0.2 ms |
+| Scrub pick | `ix_replicas_state_verified` | same | 13.9 / 14.0 ms |
+| GC expired leases | `ix_files_state_lease` | same | 0.1 / 0.1 ms |
+
+- **Finding (negative):** the R-007 failure mode is still present in the *download* path.
+  - Without statistics, SQLite plans the reader's replica query from `ix_replicas_state_verified`. Its cost then grows with the total number of replicas, not with the file's chunk count.
+  - Nothing in the app runs `ANALYZE` on SQLite. Postgres autovacuum gathers statistics on its own.
+  - The plan regression test (`test_r010_query_plans_use_composite_replica_index`) covers only the repair scan.
+  - Not fixed yet. See 08-how-it-works.md §12.6.
