@@ -3,49 +3,65 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DriveMesh</title>
+  <title>Files · DriveMesh</title>
+  <meta name="theme-color" content="#0B0F1A">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="topbar">
-    <span class="brand">DriveMesh</span>
-    <nav><a href="/" aria-current="page">Files</a><a href="/status">Cluster status</a></nav>
+    <a class="brand" href="/">{% include "_logo.html" %}DriveMesh</a>
+    <nav aria-label="App"><a href="/app" aria-current="page">Files</a><a href="/status"><span class="hide-sm">Cluster </span>Status</a></nav>
     <span class="spacer"></span>
-    <span id="who" class="muted"></span>
-    <button id="logout" class="ghost">Sign out</button>
+    <span id="who" class="who"></span>
+    <button id="logout" class="btn-ghost btn-sm">Sign out</button>
   </header>
-  <div class="layout">
-    <aside class="sidebar">
-      <h2>Storage accounts</h2>
-      <ul id="accounts" class="accounts"></ul>
-      <a id="link-google" class="button primary hidden" href="/accounts/link/google">+ Link Google Drive</a>
-      <details id="local-box" class="hidden">
-        <summary>Add local directory (dev)</summary>
-        <form id="local-form">
-          <input name="path" placeholder="/path/to/dir" required>
-          <input name="name" placeholder="name (optional)">
-          <button type="submit">Add</button>
-        </form>
-      </details>
-      <p class="muted small">Each file is chunked, encrypted on the server with a per-file key and stored on several accounts. Losing one account loses nothing.</p>
-    </aside>
-    <main class="content">
-      <div class="toolbar">
-        <nav id="crumbs" class="crumbs" aria-label="breadcrumb"></nav>
-        <span class="spacer"></span>
-        <button id="new-folder">New folder</button>
-        <label class="button primary">Upload<input id="file-input" type="file" multiple class="hidden"></label>
-      </div>
-      <div id="dropzone" class="dropzone">Drop files here to upload</div>
-      <div id="uploads"></div>
-      <table class="files">
-        <thead><tr><th>Name</th><th>Size</th><th>Protection</th><th>Modified</th><th></th></tr></thead>
-        <tbody id="rows"></tbody>
-      </table>
-      <p id="empty" class="muted hidden">This folder is empty.</p>
-      <p id="toast" class="toast hidden" role="status"></p>
-    </main>
-  </div>
+
+  <main class="app">
+    <section class="summary" aria-label="Overview">
+      <div class="tile"><div class="label">Healthy accounts</div><div id="s-accounts" class="value">–</div></div>
+      <div class="tile"><div class="label">Encrypted data stored</div><div id="s-used" class="value">–</div></div>
+      <div class="tile"><div class="label">Healthy chunk copies</div><div id="s-replicas" class="value key">–</div></div>
+      <div class="tile"><div class="label">Needing repair</div><div id="s-under" class="value">–</div></div>
+    </section>
+
+    <div class="layout">
+      <aside class="panel" aria-labelledby="acc-title">
+        <h2 id="acc-title">Storage accounts <span id="acc-count" class="pill"></span></h2>
+        <ul id="accounts" class="accounts"></ul>
+        <div class="link-actions">
+          <a id="link-google" class="btn hidden" href="/accounts/link/google">+ Link a Google Drive account</a>
+        </div>
+        <details id="local-box" class="local hidden">
+          <summary>Add a local folder (development)</summary>
+          <form id="local-form">
+            <input name="path" placeholder="/path/to/folder" required aria-label="Folder path">
+            <input name="name" placeholder="Name (optional)" aria-label="Account name">
+            <button type="submit" class="btn-sm">Add folder</button>
+          </form>
+        </details>
+      </aside>
+
+      <section class="panel" aria-labelledby="files-title">
+        <h2 id="files-title" class="sr-only">Files</h2>
+        <div class="toolbar">
+          <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
+          <span class="spacer"></span>
+          <button id="new-folder" class="btn-sm">New folder</button>
+          <button id="upload-btn" class="btn-primary btn-sm">Upload</button>
+          <input id="file-input" class="file-input" type="file" multiple aria-label="Choose files to upload">
+        </div>
+        <div id="dropzone" class="dropzone">Drop files anywhere here. They're encrypted and copied to two accounts.</div>
+        <div id="uploads" class="uploads" aria-live="polite"></div>
+        <table class="files" id="file-table">
+          <thead><tr><th>Name</th><th>Size</th><th class="col-prot">Protection</th><th class="col-mod">Modified</th><th><span class="sr-only">Actions</span></th></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div id="empty" class="empty hidden"></div>
+      </section>
+    </div>
+  </main>
+  <p id="toast" class="toast hidden" role="status"></p>
   <script src="/static/common.js"></script>
   <script src="/static/app.js"></script>
 </body>

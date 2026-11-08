@@ -3,14 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DriveMesh · Error</title>
+  <title>Something went wrong · DriveMesh</title>
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
 </head>
-<body class="center">
-  <main class="card narrow">
-    <h1>Something went wrong</h1>
-    <p class="error">{{ message }}</p>
-    <p><a href="/">Back to DriveMesh</a></p>
+<body>
+  <main class="auth-main full">
+    <div class="panel error-card">
+      <a class="brand" href="/">{% include "_logo.html" %}DriveMesh</a>
+      <h1>Something went wrong</h1>
+      <p class="error">{{ message }}</p>
+      <a class="btn btn-primary" href="/app">Back to your files</a>
+    </div>
   </main>
 </body>
 </html>

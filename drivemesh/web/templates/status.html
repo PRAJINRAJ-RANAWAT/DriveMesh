@@ -3,33 +3,44 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DriveMesh · Cluster status</title>
+  <title>Cluster status · DriveMesh</title>
+  <meta name="theme-color" content="#0B0F1A">
+  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
   <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
   <header class="topbar">
-    <span class="brand">DriveMesh</span>
-    <nav><a href="/">Files</a><a href="/status" aria-current="page">Cluster status</a></nav>
+    <a class="brand" href="/">{% include "_logo.html" %}DriveMesh</a>
+    <nav aria-label="App"><a href="/app">Files</a><a href="/status" aria-current="page"><span class="hide-sm">Cluster </span>Status</a></nav>
     <span class="spacer"></span>
-    <span id="updated" class="muted small"></span>
+    <span id="updated" class="who"></span>
   </header>
-  <main class="content wide">
-    <div id="safe-mode" class="banner hidden"></div>
-    <section class="tiles">
-      <div class="tile"><span class="label">Healthy replicas</span><span id="t-ok" class="value">–</span></div>
-      <div class="tile"><span class="label">Under-replicated chunks</span><span id="t-under" class="value">–</span></div>
-      <div class="tile"><span class="label">Unavailable chunks</span><span id="t-unavail" class="value">–</span></div>
-      <div class="tile"><span class="label">Queued jobs</span><span id="t-jobs" class="value">–</span></div>
-      <div class="tile"><span class="label">Last metadata backup</span><span id="t-backup" class="value small">–</span></div>
+  <main class="app">
+    <div id="safe-mode" class="banner hidden" role="status"></div>
+    <section class="summary" aria-label="Health">
+      <div class="tile"><div class="label">Healthy chunk copies</div><div id="t-ok" class="value key">–</div></div>
+      <div class="tile"><div class="label">Under-replicated chunks</div><div id="t-under" class="value">–</div></div>
+      <div class="tile"><div class="label">Unavailable chunks</div><div id="t-unavail" class="value">–</div></div>
+      <div class="tile"><div class="label">Last metadata backup</div><div id="t-backup" class="value small">–</div></div>
     </section>
-    <h2>Accounts</h2>
-    <div id="account-cards" class="cards"></div>
-    <h2>Replica states</h2>
-    <table class="files"><tbody id="replica-states"></tbody></table>
-    <h2>Dead jobs</h2>
-    <table class="files"><tbody id="dead-jobs"></tbody></table>
-    <h2>Recent events</h2>
-    <table class="files"><tbody id="events"></tbody></table>
+    <section class="panel">
+      <h2>Accounts</h2>
+      <div id="account-cards" class="cards"></div>
+    </section>
+    <div class="layout">
+      <section class="panel">
+        <h2>Replica states</h2>
+        <table class="files status-table"><tbody id="replica-states"></tbody></table>
+        <h2 class="small">Jobs</h2>
+        <table class="files status-table"><tbody id="jobs"></tbody></table>
+        <h2 class="small">Dead jobs</h2>
+        <table class="files status-table"><tbody id="dead-jobs"></tbody></table>
+      </section>
+      <section class="panel">
+        <h2>Recent events</h2>
+        <table class="files status-table"><tbody id="events"></tbody></table>
+      </section>
+    </div>
   </main>
   <script src="/static/common.js"></script>
   <script src="/static/status.js"></script>
