@@ -94,6 +94,25 @@ def map_error(exc: BaseException) -> BackendError:
     return PermanentError(f"{type(exc).__name__}: {exc}")
 
 
+def revoke_token(token: str, *, timeout: float = 10.0) -> bool:
+    """Best-effort revocation of a refresh/access token at Google (used on unlink)."""
+    import urllib.parse
+    import urllib.request
+
+    data = urllib.parse.urlencode({"token": token}).encode()
+    req = urllib.request.Request(
+        "https://oauth2.googleapis.com/revoke",
+        data=data,
+        headers={"Content-Type": "application/x-www-form-urlencoded"},
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            return 200 <= resp.status < 300
+    except Exception:  # noqa: BLE001 - revocation is best effort
+        log.warning("token revocation failed")
+        return False
+
+
 class GoogleDriveBackend:
     provider = "gdrive"
 
@@ -133,7 +152,7 @@ class GoogleDriveBackend:
         creds = Credentials(
             token=secret.get("token"),
             refresh_token=secret["refresh_token"],
-            token_uri="https://oauth2.googleapis.com/token",
+            token_uri="https://oauth2.googleapis.com/token",  # noqa: S106 - public endpoint
             client_id=settings.google_client_id,
             client_secret=(
                 settings.google_client_secret.get_secret_value()

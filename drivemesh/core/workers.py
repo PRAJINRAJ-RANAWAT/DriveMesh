@@ -470,12 +470,30 @@ def evacuate_job(dm: DriveMesh, payload: dict[str, Any]) -> None:
         )
         if left == 0:
             acc = s.get(LinkedAccount, account_id)
+            if acc.provider == "gdrive" and acc.secret_blob:
+                _revoke_google(dm, acc)
             acc.state, acc.secret_blob = "removed", None
     if left == 0:
         dm.accounts.invalidate(account_id)
         dm.event("account_removed", level="warning", account_id=account_id)
         return
     raise RetryLater(f"{left} replicas still on draining account ({pending} blocked)")
+
+
+def _revoke_google(dm: DriveMesh, acc: LinkedAccount) -> None:
+    from drivemesh.backends import gdrive
+
+    try:
+        secret = dm.accounts.read_secret(acc) or {}
+    except Exception:  # noqa: BLE001
+        return
+    if secret.get("refresh_token"):
+        ok = gdrive.revoke_token(secret["refresh_token"])
+        dm.event(
+            "token_revoked" if ok else "token_revoke_failed",
+            level="info" if ok else "warning",
+            account_id=acc.id,
+        )
 
 
 # ---- status -------------------------------------------------------------------------------------

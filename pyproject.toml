@@ -55,14 +55,14 @@ target-version = "py312"
 extend-exclude = ["legacy"]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "BLE"]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "BLE", "S"]
 ignore = ["RUF012", "RUF005", "UP047"]
 
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query"]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["B011"]
+"tests/*" = ["B011", "S"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -71,7 +71,7 @@ pythonpath = ["."]
 markers = [
   "slow: long-running tests (chaos, benchmarks)",
 ]
-filterwarnings = ["ignore::DeprecationWarning:google.*", "ignore:Using `httpx` with:DeprecationWarning"]
+filterwarnings = ["ignore::DeprecationWarning:google.*", "ignore:Using `httpx` with"]
 
 [tool.coverage.run]
 source = ["drivemesh"]

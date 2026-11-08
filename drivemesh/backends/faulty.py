@@ -51,7 +51,7 @@ class FaultyBackend:
         self.crash_after_puts: int | None = None
         self.crash_exc: type[BaseException] = KeyboardInterrupt
         self.calls: dict[str, int] = {}
-        self._rng = random.Random(seed)
+        self._rng = random.Random(seed)  # noqa: S311 - fault injection, not crypto
         self._sleep = sleep
         self._lock = threading.Lock()
 

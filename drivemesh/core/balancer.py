@@ -80,7 +80,8 @@ def balance(dm: DriveMesh, max_moves: int | None = None) -> dict[str, int]:
                 continue
             try:
                 obj = dm.accounts.backend(high.id).get(r.remote_id)
-            except Exception:  # noqa: BLE001 - skip; scrubber/repair handle bad replicas
+            except Exception as exc:  # noqa: BLE001 - scrubber/repair handle bad replicas
+                log.info("balancer skipped replica", extra={"replica_id": r.id, "error": str(exc)})
                 continue
             if r.sha256 and crypto.sha256_hex(obj) != r.sha256:
                 continue
