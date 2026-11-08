@@ -4,7 +4,7 @@
 {% include "_head.html" %}
   <title>Sign in · DriveMesh</title>
   <meta name="description" content="Sign in to DriveMesh, encrypted and replicated storage across the accounts you own.">
-  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="{{ asset('css/app.css') }}">
 </head>
 <body>
   <a class="skip" href="#login-form">Skip to sign-in form</a>
@@ -34,10 +34,10 @@
         <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
         <button type="submit" class="btn btn-primary btn-lg btn-block">Sign in <span class="arrow" aria-hidden="true">→</span></button>
         <p class="muted small">No account? The owner creates one with <code>drivemesh create-user</code>.</p>
-        <a class="small" href="/">← Back to home</a>
+        <div class="auth-foot"><a class="small" href="/">← Back to home</a>{% include "_theme_toggle.html" %}</div>
       </form>
     </main>
   </div>
-  <script src="/static/js/login.js"></script>
+  <script src="{{ asset('js/login.js') }}"></script>
 </body>
 </html>

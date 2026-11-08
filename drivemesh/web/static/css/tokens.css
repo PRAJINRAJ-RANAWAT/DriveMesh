@@ -19,6 +19,7 @@
   --color-surface-3: #303030;
   --color-ink: var(--color-surface);
   --color-ink-muted: #5E5A53;
+  --color-ink-faint: #8A857D;     /* large display text only: 3.3:1 on base */
   --color-on-surface: var(--color-base);
   --color-on-surface-muted: #A8A39A;
   --color-on-accent: var(--color-surface);
@@ -85,4 +86,37 @@
   --nav-h: 64px;
 
   color-scheme: light;
+}
+
+/* Dark theme: same palette, roles swapped. Charcoal becomes the page, off-white the ink, and
+   dark bands go one step deeper. Contrast (WCAG): ink 15.7:1, muted 6.9:1, accent 5.6:1 on base. */
+:root[data-theme="dark"] {
+  --color-base: #1A1A1A;
+  --color-base-2: #222222;
+  --color-base-3: #2C2C2C;
+  --color-field: #202020;
+  --color-surface: #0E0E0E;
+  --color-surface-2: #1C1C1C;
+  --color-surface-3: #2A2A2A;
+  --color-ink: #F5F3EE;
+  --color-ink-muted: #A8A39A;
+  --color-ink-faint: #74706A;     /* 3.5:1 on dark base */
+  --color-on-surface: #F5F3EE;
+  --color-on-surface-muted: #A8A39A;
+  --color-on-accent: #1C1C1C;
+  --color-accent-ink: #FF5A1F;
+  --color-accent-soft: rgba(255, 90, 31, 0.16);
+  --color-line: rgba(245, 243, 238, 0.12);
+  --color-line-strong: rgba(245, 243, 238, 0.26);
+  --color-scrim: rgba(0, 0, 0, 0.62);
+  --color-base-glass: rgba(26, 26, 26, 0.8);
+  --color-surface-glass: rgba(14, 14, 14, 0.82);
+  --color-ok: #7BC79A;
+  --color-warn: #E8B04B;
+  --color-danger: #FF8A7A;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-2: 0 8px 32px rgba(0, 0, 0, 0.45);
+  --shadow-3: 0 24px 80px rgba(0, 0, 0, 0.55);
+  --glow-hero: radial-gradient(48% 55% at 70% 40%, rgba(255, 90, 31, 0.20) 0%, rgba(255, 90, 31, 0.06) 45%, transparent 72%);
+  color-scheme: dark;
 }
