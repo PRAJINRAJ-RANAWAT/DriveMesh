@@ -195,7 +195,10 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 
 ## R-011: Test suite size and coverage
 - Method: `pytest --cov=drivemesh` on SQLite, 2026-11-09, after the UI redesign (the same suite also runs on Postgres 16 in CI).
-- Result: **208 tests** passing, line coverage **91%** (3,774 statements, 347 missed).
+- Result (updated 2026-11-09 after the landing/UX iteration): **222 tests**, made up of 212 unit/integration/API tests passing on SQLite
+  plus 10 Playwright browser tests (they run in the CI `ui` job; skipped locally unless `DRIVEMESH_UI_TESTS=1`). All 10 passed locally
+  against Brave/Chromium. Line coverage **91%** (3,845 statements, 349 missed).
+- Earlier value (before the iteration): 208 tests, 91%.
 - These two numbers are shown on the landing page (`drivemesh/web/facts.py`); `test_landing_numbers_match_results` fails if they diverge from this entry.
 
 ## R-012: Lighthouse after the "Paper & Ink" redesign (`local`)
@@ -211,3 +214,16 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 
 - Remaining Lighthouse opportunities: text compression (gzip/brotli), minified CSS, a longer static cache TTL with hashed filenames, and inlining critical CSS.
 - Signed-in pages were checked with Playwright at 1440 px, 390 px and 360 px: 0 console errors, 0 px horizontal overflow on every page.
+
+## R-013: Lighthouse after the landing/UX iteration (`local`)
+- Method: as R-012 (light theme), 2026-11-09. The page now has the pinned story, the noise wipe, the marquee, the comparison and the FAQ.
+  Assets are now gzip-compressed and fingerprinted (`?v=<hash>`, one-year immutable cache).
+
+| Page | Mode | Performance | Accessibility | Best practices | SEO | LCP | CLS |
+|---|---|---|---|---|---|---|---|
+| `/` | mobile | 98 | 100 | 100 | 100 | 2.1 s | 0.051 |
+| `/` | desktop | 100 | 100 | 100 | 100 | 0.5 s | 0.011 |
+
+- Accessibility first measured 96: the dimmed story words used 14 % opacity, which fails contrast.
+  They now use a `--color-ink-faint` token chosen to pass the 3:1 large-text minimum (3.3:1 light, 3.5:1 dark), which brought it back to 100.
+- The "text compression" audit now passes.
