@@ -4,7 +4,7 @@
 {% include "_head.html" %}
   <title>DriveMesh: five accounts, one giant drive</title>
   <meta name="description" content="DriveMesh pools the storage accounts you already own into one encrypted, self-healing storage space.">
-  <link rel="stylesheet" href="/static/css/landing.css">
+  <link rel="stylesheet" href="{{ asset('css/landing.css') }}">
 </head>
 <body class="landing">
   <a class="skip" href="#main">Skip to content</a>
@@ -17,9 +17,11 @@
         <a href="#how">How it works</a>
         <a href="#durability">Durability</a>
         <a href="#security">Security</a>
+        <a href="#faq">FAQ</a>
         <a href="https://github.com/PRAJINRAJ-RANAWAT/DriveMesh">GitHub</a>
       </nav>
       <span class="spacer"></span>
+      {% include "_theme_toggle.html" %}
       {% if logged_in %}
         <a class="btn btn-ghost btn-sm nav-secondary" href="/app">Dashboard</a>
       {% else %}
@@ -85,15 +87,66 @@
       </div>
     </section>
 
+
+    <!-- keyword marquee -->
+    <div class="marquee dark" aria-hidden="true">
+      <div class="marquee-track">
+        {% for _ in range(2) %}<ul>
+          <li>Encrypted before upload</li><li>2 copies of every chunk</li><li>Self-healing repair</li><li>AES-256-GCM</li>
+          <li>Reed–Solomon erasure coding</li><li>Least-privilege Drive scope</li><li>Checksums on every read</li><li>HDFS-inspired</li>
+        </ul>{% endfor %}
+      </div>
+    </div>
+
     <!-- 3 · stats strip -->
     <section class="stats dark" aria-label="Measured results">
       <div class="wrap stats-grid">
-        <div class="stat"><span class="stat-value">0</span><span class="label">files lost · 70 chaos trials</span></div>
+        <div class="stat"><span class="stat-value">0</span><span class="label">files lost · <span data-count="70">70</span> chaos trials</span></div>
         <div class="stat"><span class="stat-value">AES-256</span><span class="label">GCM on every chunk</span></div>
         <div class="stat"><span class="stat-value">2× / 1.5×</span><span class="label">replication or erasure coding</span></div>
-        <div class="stat"><span class="stat-value">{{ test_count }}</span><span class="label">automated tests · {{ coverage }} coverage</span></div>
+        <div class="stat"><span class="stat-value" data-count="{{ test_count }}">{{ test_count }}</span><span class="label">automated tests · {{ coverage }} coverage</span></div>
       </div>
       <p class="wrap stats-note small">Measured on local disk and a simulated network; real Google Drive runs are pending. Methods in <a href="https://github.com/PRAJINRAJ-RANAWAT/DriveMesh/blob/main/docs/design/results.md">results.md</a>.</p>
+    </section>
+
+
+    <!-- story: split · encrypt · replicate · relax (scroll-driven) -->
+    <section class="story" id="story" aria-labelledby="story-title" data-story>
+      <div class="story-stage">
+        <div class="wrap story-grid">
+          <div class="story-copy">
+            <p class="eyebrow">The idea, in four words</p>
+            <h2 id="story-title" class="sr-only">Split, encrypt, replicate, relax</h2>
+            <ol class="story-words">
+              <li data-i="0"><span class="scribble" data-story-scribble>Split.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M3 14 C 50 6, 120 6, 197 11"/></svg></span></li>
+              <li data-i="1"><span class="scribble" data-story-scribble>Encrypt.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M2 12 C 40 18, 90 4, 140 10 S 185 15, 198 8"/></svg></span></li>
+              <li data-i="2"><span class="scribble" data-story-scribble>Replicate.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M4 9 C 60 16, 110 2, 196 13"/></svg></span></li>
+              <li data-i="3"><span class="scribble" data-story-scribble>Relax.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M3 15 Q 60 3, 105 11 T 197 7"/></svg></span></li>
+            </ol>
+            <p class="story-caption" id="story-caption" aria-live="polite">A 32 MB file becomes four 8 MiB chunks, streamed through. It's never held whole in memory.</p>
+            <div class="story-progress" aria-hidden="true"><span id="story-bar"></span></div>
+          </div>
+          <figure class="story-visual" aria-label="A file splits into four chunks, each chunk is locked, then copied to two of five accounts">
+            <svg viewBox="0 0 520 480" aria-hidden="true">
+              <g class="st-file">
+                <path class="st-file-body" d="M30 120 h118 l32 32 v168 a12 12 0 0 1 -12 12 h-126 a12 12 0 0 1 -12 -12 v-188 a12 12 0 0 1 12 -12 z"/>
+                <path class="st-file-fold" d="M148 120 v32 h32"/>
+                <text class="st-file-name" x="44" y="148">report.pdf</text>
+                <text class="st-file-size" x="44" y="166">32 MB</text>
+              </g>
+              <g class="st-links"><path d="M345 125 L400 59 M345 125 L400 141 M345 195 L400 223 M345 195 L400 305 M345 265 L400 387 M345 265 L400 59 M345 335 L400 141 M345 335 L400 223"/></g>
+              {% for i in range(5) %}{% set y = 30 + i * 82 %}<g class="st-acct" transform="translate(400 {{ y }})"><rect width="100" height="58" rx="11"/><text x="12" y="22">acct {{ i + 1 }}</text></g>
+              {% endfor %}
+              {% for i in range(4) %}<g class="st-chunk" data-i="{{ i }}" transform="translate(45 {{ 175 + i * 35 }})"><rect class="st-chunk-body" width="120" height="40" rx="7"/>
+                <text class="st-plain" x="12" y="25">chunk {{ i + 1 }}</text><text class="st-cipher" x="12" y="25">dm-{{ ["7f3a", "c01e", "9b42", "e6d8"][i] }}…</text>
+                <g class="st-lock" transform="translate(96 13)"><rect x="0" y="5" width="13" height="10" rx="2.5"/><path d="M2.5 5 v-2.5 a4 4 0 0 1 8 0 v2.5"/></g></g>
+              {% endfor %}
+              {% for c in range(8) %}<rect class="st-copy" data-c="{{ c }}" x="0" y="0" width="14" height="14" rx="3.5"/>{% endfor %}
+              <g class="st-done" transform="translate(205 462)"><rect x="-6" y="-17" width="306" height="28" rx="14"/><text x="147" y="2">8 copies · every chunk on 2 accounts</text></g>
+            </svg>
+          </figure>
+        </div>
+      </div>
     </section>
 
     <!-- 4 · how it works -->
@@ -101,7 +154,7 @@
       <div class="wrap">
         <div class="section-head">
           <p class="eyebrow">How it works</p>
-          <h2 id="how-title">Three steps from scattered storage to one durable drive.</h2>
+          <h2 id="how-title">Under the hood: three steps from scattered storage to one durable drive.</h2>
         </div>
         <ol class="steps">
           <li class="step reveal">
@@ -160,6 +213,34 @@
             </svg>
           </figure>
         </div>
+      </div>
+    </section>
+
+
+    <!-- noise wipe: what you see vs what Google sees -->
+    <section class="section wipe-section" id="privacy" aria-labelledby="privacy-title">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Privacy</p>
+          <h2 id="privacy-title">Google sees noise. <span class="scribble" data-scribble>You see your files.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M2 10 C 30 4, 70 18, 120 9 C 150 4, 180 14, 198 10"/></svg></span></h2>
+          <p class="muted">Scroll to swap views. The left side is your file; the right side is the exact same bytes as a storage provider stores them: encrypted, renamed and split.</p>
+        </div>
+        <figure class="wipe" data-wipe role="img" aria-label="A readable document on the left; the same data as random-looking ciphertext on the right">
+          <div class="wipe-doc">
+            <div class="doc-bar"><span class="doc-dot"></span><span class="doc-dot"></span><span class="doc-dot"></span><span class="doc-name">thesis-final.pdf</span></div>
+            <div class="doc-body">
+              <div class="doc-title"></div>
+              <div class="doc-line w90"></div><div class="doc-line w80"></div><div class="doc-line w95"></div><div class="doc-line w60"></div>
+              <div class="doc-figure"><svg viewBox="0 0 200 90" aria-hidden="true"><path d="M0 90 L55 35 L90 62 L130 22 L200 90 Z"/><circle cx="160" cy="24" r="10"/></svg></div>
+              <div class="doc-line w85"></div><div class="doc-line w70"></div>
+            </div>
+          </div>
+          <div class="wipe-noise" id="wipe-noise">
+            <canvas id="noise-canvas" width="96" height="60"></canvas>
+            <div class="noise-meta"><span class="label">stored as</span><b>dm-4c1e9a7b… · dm-77d0e2f1… · dm-b93f5a04…</b></div>
+          </div>
+          <div class="wipe-handle" id="wipe-handle" aria-hidden="true"><span class="label">you</span><span class="label">Google</span></div>
+        </figure>
       </div>
     </section>
 
@@ -222,6 +303,29 @@
       </div>
     </section>
 
+
+    <!-- comparison -->
+    <section class="section compare" id="compare" aria-labelledby="compare-title">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Why bother</p>
+          <h2 id="compare-title">One account is a single point of failure.</h2>
+        </div>
+        <div class="table-scroll">
+          <table class="compare-table">
+            <thead><tr><th scope="col"><span class="sr-only">Feature</span></th><th scope="col">One Google account</th><th scope="col" class="us">DriveMesh</th></tr></thead>
+            <tbody>
+              <tr><th scope="row">Free space</th><td>15 GB, shared with Gmail and Photos</td><td class="us">15 GB per linked account, about half usable with 2 copies</td></tr>
+              <tr><th scope="row">Account locked or deleted</th><td><span class="no" aria-hidden="true">✕</span> Files gone</td><td class="us"><span class="yes" aria-hidden="true">✓</span> Every chunk has a copy elsewhere</td></tr>
+              <tr><th scope="row">Provider can read your files</th><td><span class="no" aria-hidden="true">✕</span> Yes</td><td class="us"><span class="yes" aria-hidden="true">✓</span> No: encrypted before upload</td></tr>
+              <tr><th scope="row">Silent corruption</th><td>Not checked by you</td><td class="us"><span class="yes" aria-hidden="true">✓</span> Checksum + GCM tag on every read; background scrubbing</td></tr>
+              <tr><th scope="row">Mix providers</th><td>Google only</td><td class="us"><span class="yes" aria-hidden="true">✓</span> Drive, S3-compatible buckets, local disks</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
     <!-- 8 · floating punchlines -->
     <section class="section punches" aria-label="Why DriveMesh">
       <div class="wrap punch-grid">
@@ -249,6 +353,26 @@
           <p class="punch-text">Inspired by HDFS — the system behind Big Tech's storage.</p>
           <svg class="punch-art art-cluster" viewBox="0 0 140 80" aria-hidden="true"><path class="w" d="M25 32 L70 40 L70 22 M70 40 L115 32 M70 40 L47 48 M70 40 L93 48"/><rect x="10" y="12" width="30" height="20" rx="4"/><rect x="55" y="4" width="30" height="20" rx="4"/><rect x="100" y="12" width="30" height="20" rx="4"/><rect x="32" y="48" width="30" height="20" rx="4"/><rect x="78" y="48" width="30" height="20" rx="4"/><circle class="a" cx="70" cy="40" r="6"/></svg>
         </article>
+      </div>
+    </section>
+
+
+    <!-- FAQ -->
+    <section class="section faq" id="faq" aria-labelledby="faq-title">
+      <div class="wrap faq-grid">
+        <div class="section-head">
+          <p class="eyebrow">Questions</p>
+          <h2 id="faq-title">Honest answers.</h2>
+          <p class="muted">DriveMesh is a personal project. Every number on this page links back to a measured result.</p>
+        </div>
+        <div class="faq-list">
+          <details><summary>Can Google read my files?</summary><p>No. Each chunk is encrypted with AES-256-GCM before it is uploaded and stored under a random name. Without your master key the objects are indistinguishable from noise.</p></details>
+          <details><summary>Is this allowed?</summary><p>DriveMesh uses Google's official Drive API on accounts you own, with the narrowest permission (it can only see files it created), and stays within published rate limits. Check Google's terms for your own use.</p></details>
+          <details><summary>What if I lose an account?</summary><p>Reads switch to the other copy immediately, and the repair worker rebuilds missing copies on healthy accounts. In 70 chaos trials (deleted accounts, deleted and corrupted chunks, killed processes) no file was lost.</p></details>
+          <details><summary>What if I lose my master key?</summary><p>Then your data is gone. That is the price of encryption nobody else can undo. Keep an offline copy of the key; DriveMesh will remind you.</p></details>
+          <details><summary>How much space do I actually get?</summary><p>With two copies of every chunk, roughly half of the space you link. Erasure coding RS(4,2) raises that to about two-thirds once you have six or more accounts.</p></details>
+          <details><summary>Is it production-ready?</summary><p>Not yet. It is tested ({{ test_count }} automated tests, CI on SQLite and PostgreSQL) and chaos-tested on local and simulated backends; benchmarks on real Google Drive are still pending.</p></details>
+        </div>
       </div>
     </section>
 
@@ -284,6 +408,6 @@
     </div>
     <div class="wrap footer-bottom small muted"><p>Built by Prajin · <a href="/login">Sign in</a></p></div>
   </footer>
-  <script src="/static/js/landing.js" defer></script>
+  <script src="{{ asset('js/landing.js') }}" defer></script>
 </body>
 </html>

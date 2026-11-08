@@ -23,11 +23,38 @@ from drivemesh.core.system import DriveMesh
 from drivemesh.db import User
 from drivemesh.errors import AlreadyExists, DriveMeshError
 from drivemesh.web import api, facts, oauth
-from drivemesh.web.security import LoginThrottle, RequestContextMiddleware
+from drivemesh.web.security import (
+    LoginThrottle,
+    RequestContextMiddleware,
+    SelectiveGZipMiddleware,
+)
 
 log = logging.getLogger(__name__)
 HERE = Path(__file__).parent
 templates = Jinja2Templates(directory=str(HERE / "templates"))
+
+
+def _asset_versions() -> dict[str, str]:
+    """Content hash per static file, so templates can emit cache-busting URLs."""
+    import hashlib
+
+    root = HERE / "static"
+    return {
+        str(f.relative_to(root)): hashlib.sha256(f.read_bytes()).hexdigest()[:10]
+        for f in root.rglob("*")
+        if f.is_file()
+    }
+
+
+ASSET_VERSIONS = _asset_versions()
+
+
+def asset(path: str) -> str:
+    v = ASSET_VERSIONS.get(path)
+    return f"/static/{path}?v={v}" if v else f"/static/{path}"
+
+
+templates.env.globals["asset"] = asset
 
 
 def _bootstrap_owner(dm: DriveMesh) -> None:
@@ -101,6 +128,8 @@ def create_app(
     )
     app.state.dm = dm
     app.state.login_throttle = LoginThrottle(st.login_rate_per_minute)
+    app.state.upload_progress = {}  # (user_id, upload_id) -> set of stored chunk indices
+    app.add_middleware(SelectiveGZipMiddleware)
     app.add_middleware(RequestContextMiddleware, hsts=st.secure_cookies)
     app.add_middleware(
         SessionMiddleware,
