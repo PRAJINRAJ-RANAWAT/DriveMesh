@@ -7,10 +7,27 @@ from drivemesh.backends.faulty import FaultyBackend
 from drivemesh.backends.local import LocalDiskBackend, MemoryBackend
 
 
-@pytest.fixture(params=["local", "memory"])
+@pytest.fixture(params=["local", "memory", "s3", "gdrive"])
 def backend(request, tmp_path) -> StorageBackend:
     if request.param == "local":
         return LocalDiskBackend(tmp_path / "store")
+    if request.param == "s3":
+        import boto3
+        from moto import mock_aws
+
+        from drivemesh.backends.s3 import S3Backend
+
+        m = mock_aws()
+        m.start()
+        request.addfinalizer(m.stop)
+        client = boto3.client("s3", region_name="us-east-1")
+        client.create_bucket(Bucket="dm-test")
+        return S3Backend(client, "dm-test", prefix="pool/")
+    if request.param == "gdrive":
+        from drivemesh.backends.gdrive import GoogleDriveBackend
+        from tests.fakes.fake_drive import FakeDrive
+
+        return GoogleDriveBackend(FakeDrive().service, upload_chunk=256 * 1024)
     return MemoryBackend()
 
 
@@ -41,7 +58,9 @@ def test_contract_health(backend):
 
 
 @pytest.mark.parametrize("name", ["../escape", "a/b", ".hidden", "", "x" * 300])
-def test_unsafe_names_rejected(backend, name):
+@pytest.mark.parametrize("kind", ["local", "memory"])
+def test_unsafe_names_rejected(kind, name, tmp_path):
+    backend = LocalDiskBackend(tmp_path) if kind == "local" else MemoryBackend()
     with pytest.raises(PermanentError):
         backend.put(name, b"x")
 
