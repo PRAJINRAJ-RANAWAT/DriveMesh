@@ -115,3 +115,11 @@
 - SQLite slows down beyond ~100k chunks (R-007); use Postgres for large pools.
 - Docker image is 568 MB, mostly google-api-python-client. A slimmer image is possible by dropping unused extras.
 - Placement is load-aware, so it isn't a pure function of (chunk, accounts) (ADR-005a).
+- Found while writing 08-how-it-works.md (2026-11-09), not fixed yet:
+  - GC-vs-commit lost update in `gc.scan`, which has no conditional UPDATE (§3.6, data-loss risk, narrow window).
+  - Download replica query uses the wrong index on SQLite without `ANALYZE` (R-014).
+  - Uploads slower than ~28 KB/s fail: the lease is refreshed only per chunk.
+  - Restore after post-snapshot repair/balance can lose chunks; there is no CLI restore from Drive.
+  - A deleted `DriveMesh` Drive folder isn't detected by health checks.
+  - `safe_mode_timeout` is unused.
+  - 26 doc mismatches are listed in 08 §0.3; 02/03/04/06 are not yet corrected in place.

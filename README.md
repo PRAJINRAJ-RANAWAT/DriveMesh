@@ -43,6 +43,7 @@ Design docs:
 5. [Roadmap](docs/design/05-roadmap.md)
 6. [Threat model](docs/design/07-threat-model.md)
 7. [Results](docs/design/results.md)
+8. [How it actually works (verified against the code, incl. DB schema)](docs/design/08-how-it-works.md)
 
 ## Measured results
 All from scripted runs recorded with their method in [results.md](docs/design/results.md). **These are local-disk or simulated-network numbers.
