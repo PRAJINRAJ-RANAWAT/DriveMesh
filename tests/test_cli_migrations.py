@@ -19,7 +19,12 @@ def cli_env(tmp_path, monkeypatch):
     monkeypatch.setenv("DRIVEMESH_LOG_JSON", "false")
     monkeypatch.setenv("DRIVEMESH_LOG_LEVEL", "WARNING")
     get_settings.cache_clear()
+    import logging
+
+    root = logging.getLogger()
+    saved = (root.handlers[:], root.level)
     yield tmp_path
+    root.handlers[:], _ = saved[0], root.setLevel(saved[1])
     get_settings.cache_clear()
 
 
@@ -117,3 +122,26 @@ def test_dest_path():
     assert _dest_path("/legacy", "root/a/b", "f") == "/legacy/a/b/f"
     assert _dest_path("/legacy", "root", "f") == "/legacy/f"
     _ = json
+
+
+def test_cli_operations(cli_env, capsys):
+    tmp = cli_env
+    run("create-user", "owner", "--password", "pw")
+    for name in ("a", "b", "c"):
+        run("account-add-local", str(tmp / name), "--name", name)
+    src = tmp / "x.bin"
+    src.write_bytes(payload(100_000))
+    assert run("put", str(src), "/x.bin", "--rf", "2") == 0
+    assert run("backup") == 0
+    capsys.readouterr()
+    assert run("status") == 0
+    status = json.loads(capsys.readouterr().out)
+    assert status["replicas"]["ok"] == 4 and status["last_backup_at"]
+    acc_id = status["accounts"][0]["id"]
+    assert run("account-remove", acc_id) == 0
+    assert run("jobs") == 0
+    capsys.readouterr()
+    assert run("account-list", "--all") == 0
+    assert "removed" in capsys.readouterr().out
+    assert run("fsck", "--deep") == 0
+    assert run("rewrap") == 0
