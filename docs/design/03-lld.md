@@ -80,6 +80,7 @@ CREATE TABLE replicas (
   created_at  TIMESTAMP NOT NULL, verified_at TIMESTAMP,
   UNIQUE (chunk_id, account_id)               -- never two replicas/shards of a chunk on one account
 );
+CREATE INDEX ix_replicas_chunk_state ON replicas(chunk_id, state);   -- repair scan / fsck (ADR-020)
 CREATE INDEX ix_replicas_account_state ON replicas(account_id, state);
 CREATE INDEX ix_replicas_verified ON replicas(state, verified_at);
 
@@ -205,6 +206,8 @@ Eligible accounts: `state = active`, `free_bytes − reserve ≥ chunk_size`, an
 
 The full candidate order also gives the **fallback list** when a target fails mid-write.
 
+**Amendment (ADR-005a):** writers and repair take the top 2·RF candidates and prefer the least-loaded (power of two choices); reads prefer the least-loaded healthy replica.
+
 ## 6. Background workers
 
 All run as daemon threads in the app process (or via `drivemesh worker`). Each loop is a function `run_once()`, so tests call it directly
@@ -213,7 +216,7 @@ with no sleeping. Nothing runs in safe mode except the health checker.
 | Worker | Cadence (default) | What it does |
 |---|---|---|
 | **Health checker** (heartbeat) | 60 s per account | `backend.health()` → free/used/capacity. AUTH error → `revoked`. 3 consecutive transient failures → `unreachable`. Success → `active` (or `full` if free < reserve). Exits safe mode once every non-removed account has been probed |
-| **Repair** (re-replication) | 30 s scan, batch of 100 | Query chunks of committed files where `count(ok replicas on active/full/draining accounts, excluding accounts dead > dead_after) < rf`, ordered by healthy count ascending. Per chunk: read a verified healthy replica, place on new accounts (excluding current holders), put, mark ok. A replica on a dead account is marked `missing`. Zero healthy replicas → `chunk_lost` CRITICAL event (the file shows as damaged) |
+| **Repair** (re-replication) | 30 s scan, batch of 100, `repair_parallelism` (8) chunks concurrently (ADR-019) | Query chunks of committed files where `count(ok replicas on active/full/draining accounts, excluding accounts dead > dead_after) < rf`, ordered by healthy count ascending. Per chunk: read a verified healthy replica, place on new accounts (excluding current holders), put, mark ok. A replica on a dead account is marked `missing`. Zero healthy replicas → `chunk_lost` CRITICAL event (the file shows as damaged) |
 | **Scrubber** | continuous, rate-limited (default 1 MiB/s) | Pick `ok` replicas ordered by `verified_at NULLS FIRST`; download; compare SHA-256; set `verified_at` or mark `corrupt`/`missing` |
 | **Balancer** | 10 min | If `max(util) − min(util) > 10 %` among active accounts, move up to M replicas from the most- to the least-utilised: **copy, mark ok, then delete the old one**. RF never drops |
 | **GC** | 5 min | (a) `pending` files with expired lease → `aborted` + `gc_file`. (b) `replicas.state='pending'` older than 1 h on committed files → delete by name. (c) **Orphan sweep**: list `dm-*` objects per account and delete those absent from `replicas` and older than `orphan_grace` (24 h). **Disabled for 7 days after a metadata restore** |

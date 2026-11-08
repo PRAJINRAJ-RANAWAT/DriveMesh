@@ -7,19 +7,24 @@ Prefer the **real Google Drive** numbers once they exist. If you quote local-bac
 
 **DriveMesh: fault-tolerant encrypted storage across multiple cloud accounts** · Python, FastAPI, PostgreSQL, SQLAlchemy, Docker, GitHub Actions
 
-1. *Plain:* Rebuilt a team prototype that lost files whenever one cloud account failed into a system that keeps every file readable after losing any account.
-   *Technical:* Achieved **0 files lost across [N] chaos runs** (account loss, chunk deletion and corruption, crashes mid-upload and mid-repair) by designing
-   HDFS-style **replication (RF=2/3)** with weighted rendezvous placement, heartbeat health checks, a priority repair worker and a checksum scrubber over a **PostgreSQL** metadata service.
-2. *Plain:* Made uploads and downloads of very large files use a small, fixed amount of memory and run faster in parallel.
-   *Technical:* Streamed **[X] GB** files at **[Y] MB/s** with peak memory **≤ [Z] MB regardless of file size** by building a backpressured,
-   bounded-concurrency chunk pipeline (**Python** threads, **FastAPI** streaming, per-account token-bucket rate limiting with jittered exponential backoff).
-3. *Plain:* Made stored data both private and tamper-evident while cutting storage overhead.
-   *Technical:* Reduced encryption storage overhead from **33.34 % to < 0.001 %** per chunk and made chunk swaps and truncation detectable by replacing Fernet with
-   **AES-256-GCM envelope encryption** (per-file data keys, key rotation without re-upload, associated data binding each chunk to its file and position).
-   *(33.34 % is measured, R-001. The new figure is from the format definition (32 B per 8 MiB) and is confirmed by test.)*
-4. *Plain:* Took the project from no tests to a continuously tested, deployable service.
-   *Technical:* Shipped **[T] tests at [C] % coverage** with **CI/CD** (GitHub Actions: lint, tests on SQLite and PostgreSQL, Docker build), structured logs and
-   Prometheus metrics, and recovered the full metadata store from encrypted off-site snapshots in **[R] s** (chaos test) to eliminate the metadata single point of failure.
+Numbers below are from results.md. Where a bullet says *local/simulated*, keep that qualifier until the real-Drive runs (MANUAL_STEPS §4) replace it.
+
+1. *Plain:* Rebuilt a team prototype that lost files whenever one cloud account failed into a system that keeps every file readable when accounts are lost.
+   *Technical:* Achieved **0 files lost and 0 corrupted reads across 70 chaos trials** (account loss, chunk deletion and bit-flip corruption,
+   `SIGKILL` mid-upload and mid-repair, metadata DB wipe + restore; R-008) by designing HDFS-style **replication (RF=2/3) and Reed–Solomon
+   erasure coding** with weighted rendezvous placement, heartbeat health checks, parallel priority repair and a checksum scrubber on a **PostgreSQL** metadata service.
+2. *Plain:* Made large transfers fast across many accounts while using a small, fixed amount of memory.
+   *Technical:* Streamed 1–5 GB files with **peak memory flat at ~0.3 GB regardless of file size** (R-003). Raised 8-account throughput
+   **5.6× over sequential** and **39 % over plain rendezvous-hash placement** on a simulated 10 MB/s-per-account network (R-004) by removing head-of-line
+   blocking and adding power-of-two-choices load-aware placement on a bounded, backpressured **Python** thread pipeline (**FastAPI** streaming,
+   per-account token buckets, jittered exponential backoff).
+3. *Plain:* Made the system recover faster after a failure and stay fast as metadata grows.
+   *Technical:* Cut post-failure re-replication time **2.8×** (31.2 s → 11.2 s, 4.3 → 12.7 MB/s, simulated; R-006) by parallelising repair. Cut **fsck over 1M chunks from
+   291 s to 7.9 s on PostgreSQL** and removed a quadratic SQLite query plan (68 s → 0.03 s at 20k chunks; R-007) with query rewrites, a composite index and query-plan regression tests.
+4. *Plain:* Made stored data private and tamper-evident, and took the project from zero tests to continuously deployed.
+   *Technical:* Replaced Fernet (**+33.34 % storage overhead**, R-001) with **AES-256-GCM envelope encryption** (32 B per chunk, position-bound AAD,
+   key rotation without re-upload). Shipped **199 tests at 91 % coverage** with **CI/CD** (GitHub Actions: lint, SQLite + PostgreSQL test matrix,
+   dependency audit, **Docker** build smoke-tested against Postgres).
 
 ATS keywords covered: distributed systems, fault tolerance, replication, durability, scalability, encryption, Python, PostgreSQL, REST API, concurrency, Docker, CI/CD.
 
@@ -77,23 +82,38 @@ and you verified it with tests and chaos experiments you can rerun live. Dishone
     - A lost KEK means total loss, with no escrow (by design). Here's how KMS would change that.
     - Tell the leaked-key incident story.
 
-## STAR stories (from real bugs found in the audit)
+## STAR stories (from real bugs found in the audit and during benchmarking)
+
+**S4: A query that was fine at 10k rows took 68 s at 20k (R-007)**
+- *Situation:* The repair scan and fsck passed every test, but the 1M-chunk benchmark never finished.
+- *Action:*
+  - Measured stage by stage. 4× more rows gave 21× more time.
+  - Raw SQL on one database was fast. The same query on another database with an identical schema was slow.
+  - `EXPLAIN QUERY PLAN` showed SQLite, lacking statistics, sometimes chose the `(state, verified_at)` index for the replica join.
+  - Fixed with a composite `(chunk_id, state)` index (migration 0002), a single-pass grouped fsck, and a test that asserts the query plan.
+- *Result:* 0.03 s at 20k chunks. On Postgres at 1M chunks, fsck went from 291 s to 7.9 s.
+
+**S5: Parallel uploads didn't scale (R-004)**
+- *Situation:* 8 accounts gave only about 3× the throughput of 1.
+- *Action:* Found two causes: head-of-line blocking in the writer's backpressure, and short-run hash imbalance. Fixed them with `FIRST_COMPLETED`
+  backpressure and power-of-two-choices placement, and A/B tested with 3 trials each.
+- *Result:* +39 % mean throughput, variance cut from 12 to 0.7 MB/s.
 
 **S1: Removing an account silently corrupted every file (W-02)**
 - *Situation:* In the forked prototype, chunks referenced accounts by **list index**.
 - *Task:* Find out why downloads would fail after an account was removed.
 - *Action:* Traced `app.py:229-231` (`pop(index)`) against `storage_manager.py:201-202`. Every account after the removed one shifted, so chunks pointed to
   the wrong Drive account. Redesigned identity as stable UUIDs with a uniqueness constraint on (user, provider, external id), and made unlink an evacuation job.
-- *Result:* A test now removes the middle account of 3 and every file stays readable ([test name]). Unlink refuses if it would violate RF.
+- *Result:* `test_w02_removing_middle_account_does_not_remap_others` and `test_unlink_with_evacuation` pass. Unlink refuses if it would violate RF. The account-loss chaos experiment lost 0 files in 20 trials (R-008).
 
 **S2: Delete reported success while leaving data behind (W-04/W-03)**
 - *Situation:* Delete swallowed errors (`storage_manager.py:247-249`) and still dropped the registry entry, so leaked chunks became unfindable.
   Failed uploads leaked chunks too.
 - *Action:* Tombstone + a durable delete job enqueued in the same transaction (transactional outbox); NotFound treated as success (idempotent); retries with backoff; a `dead` state shown in the UI.
   Deterministic object names (`dm-<replica id>`) let GC clean up even when the crash happened between the remote write and the DB update.
-- *Result:* The crash-injection chaos test finds 0 orphaned objects after GC ([results.md C-5]).
+- *Result:* 10/10 `SIGKILL`-mid-upload trials and 10/10 `SIGKILL`-mid-repair trials end with 0 orphaned objects and a clean fsck (R-008). `test_w04_delete_retries_and_never_silently_drops` proves a failed delete is retried, never forgotten.
 
 **S3: The encryption key was in the public git history (W-00)**
 - *Situation:* `.key` and the OAuth client secret had been committed and later only `git rm --cached`'d.
 - *Action:* Rewrote history, force-pushed once, rotated the credentials, and redesigned to envelope encryption with keys only from env/secret store and key rotation by rewrap.
-- *Result:* There is no key material in the repo, and rotation runs without re-uploading data ([test name]). Lesson: un-committing is not un-leaking; rotate first.
+- *Result:* There is no key material in the repo, and `test_rewrap_rotates_master_key` shows rotation without re-uploading any data. Lesson: un-committing is not un-leaking; rotate first.
