@@ -7,3 +7,6 @@ credentials.json
 __pycache__
 temp_uploads/
 temp_downloads/
+.env
+.env.*
+.claude/settings.local.json
