@@ -34,10 +34,50 @@ def authed(client, user, accounts):
 
 
 def test_pages_redirect_to_login(client):
-    for path in ("/", "/status"):
+    for path in ("/app", "/status"):
         r = client.get(path, follow_redirects=False)
         assert r.status_code == 303 and r.headers["location"] == "/login"
     assert client.get("/login").status_code == 200
+
+
+def test_landing_page_renders_for_visitors(client):
+    import re
+
+    r = client.get("/")
+    assert r.status_code == 200
+    html = r.text
+    assert "Five Google accounts." in html and "One giant drive." in html
+    assert re.search(r'<a class="btn btn-primary btn-lg" href="/login">Start meshing</a>', html)
+    assert "What if an account dies?" in html and "How it works" in html
+    assert '0</div><div class="stat-label">files lost' in html  # real number (results.md R-008)
+    # strict-CSP friendly: no inline scripts, no inline style attributes, no third-party assets
+    assert not re.search(r"<script(?![^>]*\bsrc=)", html)
+    assert "style=" not in html
+    assert not re.search(r'(?:src|href)="https?://(?!github\.com/PRAJINRAJ-RANAWAT)', html)
+    assert "script-src 'self'" in r.headers["content-security-policy"]
+
+
+def test_landing_cta_points_to_app_when_signed_in(client, user):
+    login(client)
+    html = client.get("/").text
+    assert 'href="/app">Start meshing' in html and "Open DriveMesh" in html
+    r = client.get("/login", follow_redirects=False)
+    assert r.status_code == 303 and r.headers["location"] == "/app"
+    assert client.get("/app").status_code == 200
+
+
+def test_landing_stats_come_from_results():
+    from pathlib import Path
+
+    results = Path("docs/design/results.md").read_text()
+    assert "Total: 70 trials, 0 files lost" in results
+    assert "AES-256-GCM" in Path("docs/design/04-decisions.md").read_text()
+
+
+def test_static_assets_are_cacheable_pages_are_not(client):
+    assert client.get("/static/style.css").headers["cache-control"].startswith("public")
+    assert client.get("/static/fonts/inter-latin.woff2").status_code == 200
+    assert client.get("/login").headers["cache-control"] == "no-store"
 
 
 def test_security_headers(client):

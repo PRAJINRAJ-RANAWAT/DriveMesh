@@ -136,7 +136,14 @@ def create_app(
         )
 
     @app.get("/", response_class=HTMLResponse)
-    def index(request: Request):
+    def landing(request: Request):
+        """Public home page; 'Start meshing' leads to /login (or /app when signed in)."""
+        return templates.TemplateResponse(
+            request, "landing.html", {"logged_in": bool(request.session.get("uid"))}
+        )
+
+    @app.get("/app", response_class=HTMLResponse)
+    def app_page(request: Request):
         if not request.session.get("uid"):
             return RedirectResponse("/login", status_code=303)
         return templates.TemplateResponse(request, "index.html", {})
@@ -149,7 +156,13 @@ def create_app(
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request):
+        if request.session.get("uid"):
+            return RedirectResponse("/app", status_code=303)
         return templates.TemplateResponse(request, "login.html", {})
+
+    @app.get("/favicon.ico", include_in_schema=False)
+    def favicon():
+        return RedirectResponse("/static/favicon.svg", status_code=301)
 
     @app.get("/healthz")
     def healthz():
