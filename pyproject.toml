@@ -30,6 +30,7 @@ dependencies = [
 pg = ["psycopg[binary]==3.3.8"]
 s3 = ["boto3==1.43.126"]
 ec = ["zfec==1.6.0.0"]
+ui = ["playwright==1.49.1"]
 dev = [
   "pytest==9.2.0",
   "pytest-cov==7.1.0",

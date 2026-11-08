@@ -219,3 +219,18 @@ def test_r010_query_plans_use_composite_replica_index(dm, user, accounts):
         plan = " | ".join(r[-1] for r in c.execute(text("EXPLAIN QUERY PLAN " + sql)))
     assert "ix_replicas_chunk_state" in plan, plan
     assert "ix_replicas_state_verified" not in plan, plan
+
+
+def test_pooled_capacity_counts_each_local_disk_once(dm, user, tmp_path):
+    from drivemesh.core.workers import health_check, pooled_capacity
+
+    for name in ("a", "b", "c"):
+        dm.accounts.link_local(user.id, str(tmp_path / name), name)  # same filesystem
+    dm.accounts.link_local(user.id, str(tmp_path / "sim"), "sim", capacity_bytes=10 * CHUNK)
+    health_check(dm)
+    accs = dm.accounts.list(user.id)
+    cap = pooled_capacity(accs)
+    disk = next(a for a in accs if a.display_name == "a")
+    sim = next(a for a in accs if a.display_name == "sim")
+    assert cap["total_bytes"] == disk.capacity_bytes + sim.capacity_bytes  # not 3x the disk
+    assert cap["used_bytes"] == sum(a.used_bytes or 0 for a in accs)

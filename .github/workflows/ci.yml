@@ -46,6 +46,25 @@ jobs:
           name: coverage
           path: coverage.xml
 
+  ui:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -e ".[dev,ui]"
+      - run: python -m playwright install --with-deps chromium
+      - run: pytest -q tests/ui
+        env:
+          DRIVEMESH_UI_TESTS: "1"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-screenshots
+          path: ui-artifacts/
+
   test-postgres:
     runs-on: ubuntu-latest
     services:
