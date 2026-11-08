@@ -192,3 +192,22 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 - Signed-in pages (`/app`, `/status`) were not audited by Lighthouse (they need a session).
   They were checked with puppeteer-core at 1440 px and a true 390 px viewport: 0 console errors, 0 px horizontal overflow.
 - Localhost has no network latency, so a deployed page will score lower on LCP.
+
+## R-011: Test suite size and coverage
+- Method: `pytest --cov=drivemesh` on SQLite, 2026-11-09, after the UI redesign (the same suite also runs on Postgres 16 in CI).
+- Result: **208 tests** passing, line coverage **91%** (3,774 statements, 347 missed).
+- These two numbers are shown on the landing page (`drivemesh/web/facts.py`); `test_landing_numbers_match_results` fails if they diverge from this entry.
+
+## R-012: Lighthouse after the "Paper & Ink" redesign (`local`)
+- Method: same as R-010 (`npx lighthouse@12.6.1`, mobile default and `--preset=desktop`, Brave headless, localhost). Date: 2026-11-09.
+  R-010 measured the previous dark theme.
+
+| Page | Mode | Performance | Accessibility | Best practices | SEO | LCP | CLS | TBT |
+|---|---|---|---|---|---|---|---|---|
+| `/` (landing) | mobile | 99 | 100 | 100 | 100 | 2.1 s | 0 | 0 ms |
+| `/` (landing) | desktop | 100 | 100 | 100 | 100 | 0.5 s | 0 | 0 ms |
+| `/login` | mobile | 99 | 100 | 100 | 100 | 1.8 s | 0 | 0 ms |
+| `/login` | desktop | 100 | 100 | 100 | 100 | 0.4 s | 0 | 0 ms |
+
+- Remaining Lighthouse opportunities: text compression (gzip/brotli), minified CSS, a longer static cache TTL with hashed filenames, and inlining critical CSS.
+- Signed-in pages were checked with Playwright at 1440 px, 390 px and 360 px: 0 console errors, 0 px horizontal overflow on every page.

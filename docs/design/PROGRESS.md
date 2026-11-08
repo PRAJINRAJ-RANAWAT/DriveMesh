@@ -88,6 +88,20 @@
 - CI `docker` job builds the image and smoke-tests it in prod mode against Postgres. That test caught a real bug (reserved log key crashing the backup worker).
 - README rewritten with architecture, results and limitations. `MANUAL_STEPS.md` covers everything that needs the owner.
 
+## UI redesign (2026-11-09)
+- "Paper & Ink" design system (base #F5F3EE, charcoal #1C1C1C, accent #FF5A1F) in `static/css/tokens.css`; reference study in `08-ui-reference.md`.
+- New landing page:
+  - sticky blur nav that switches to dark glass over charcoal bands
+  - animated mesh hero
+  - real-number stats
+  - steps with hover micro-animations
+  - a pinned scroll-driven durability scene
+  - security flow and HDFS architecture diagrams
+  - staggered punchline cards with original art
+  - accent CTA band and footer
+- New app pages: Overview `/app`, Files `/files` (folder tree, replica badges, per-chunk upload status), Accounts `/accounts` (quota bars, unlink dialog with an evacuation warning), Status `/status`, and a split login.
+- Lighthouse (R-012): landing 99/100/100/100 on mobile and 100 across the board on desktop. 208 tests, 91 % coverage (R-011).
+
 ## Next (owner)
 1. MANUAL_STEPS §1: rotate the leaked OAuth client and destroy the old Fernet key (import legacy data first if wanted).
 2. §2–3: create the OAuth web client and link real Gmail accounts locally.
