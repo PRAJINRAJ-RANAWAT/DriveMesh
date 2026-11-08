@@ -14,8 +14,9 @@
 | Phase 2 Durability | ✅ done |
 | Phase 3 Scalability | ✅ done |
 | Phase 4 Web app | ✅ done |
-| Phase 5 Security | ⏳ next |
-| Phase 6–7 | ☐ |
+| Phase 5 Security | ✅ done |
+| Phase 6 Proof | ⏳ next |
+| Phase 7 Deployment | ☐ |
 
 ## Phase 0 summary
 - Legacy prototype moved to `legacy/` unchanged (ADR-017).
@@ -63,6 +64,14 @@
 - UI: file browser (drag-and-drop upload with progress, rename, delete), accounts sidebar with health and capacity, status dashboard. No inline JS/CSS; DOM built with `textContent`.
 - Multi-user isolation tests at the HTTP level.
 - Smoke test against a real uvicorn server: a 3 MB round-trip is byte-identical, workers run, a backup is written.
+
+## Phase 5 summary
+- Threat model: `07-threat-model.md` (STRIDE, each threat mapped to a mitigation and a test).
+- `Settings.production_problems()`: the app refuses to start in prod with an unsafe config.
+- HSTS when cookies are secure; cookie flags tested.
+- Google tokens revoked on unlink; secrets checked to be ciphertext at rest.
+- ruff bandit rules (`S`) enabled; `pip-audit` CI job (0 known vulnerabilities on 2026-11-08).
+- Already in place from earlier phases: CSRF, CSP, login throttle, upload limits, envelope encryption and rewrap.
 
 ## Open issues
 - OAuth client secret and the legacy `.key` rotation are pending (owner action; see MANUAL_STEPS.md).
