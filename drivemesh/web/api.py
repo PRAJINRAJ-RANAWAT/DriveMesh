@@ -86,21 +86,66 @@ def me(request: Request):
         "user": {"id": user.id, "username": user.username},
         "csrf_token": ensure_csrf_token(request),
         "google_configured": bool(dm.settings.google_client_id),
+        "chunk_size": dm.settings.chunk_size,
         "allow_local_backends": dm.settings.allow_local_backends,
     }
 
 
 # ---- namespace ----------------------------------------------------------------------------------
+def file_health(dm, files: list[File]) -> dict[str, str]:
+    """Replica health per file: healthy | repairing | under_replicated | unavailable."""
+    from sqlalchemy import String, and_, case, cast, func, select
+
+    from drivemesh.core.accounts import READABLE_STATES
+    from drivemesh.db import Chunk, LinkedAccount, Replica
+
+    if not files:
+        return {}
+    ids = [f.id for f in files]
+    by_id = {f.id: f for f in files}
+    readable = and_(Replica.state == "ok", LinkedAccount.state.in_(READABLE_STATES))
+    unit = case((File.scheme == "ec", cast(Replica.shard_idx, String)), else_=Replica.id)
+    healthy = func.count(func.distinct(case((readable, unit), else_=None)))
+    pending = func.sum(case((Replica.state == "pending", 1), else_=0))
+    with dm.session() as s:
+        rows = s.execute(
+            select(Chunk.file_id, healthy, pending)
+            .join(File, File.id == Chunk.file_id)
+            .outerjoin(Replica, Replica.chunk_id == Chunk.id)
+            .outerjoin(LinkedAccount, LinkedAccount.id == Replica.account_id)
+            .where(Chunk.file_id.in_(ids))
+            .group_by(Chunk.id, Chunk.file_id)
+        ).all()
+    out = dict.fromkeys(ids, "healthy")
+    rank = {"healthy": 0, "repairing": 1, "under_replicated": 2, "unavailable": 3}
+    for fid, n, pend in rows:
+        f = by_id[fid]
+        need = f.ec_k if f.scheme == "ec" else 1
+        target = (f.ec_k or 0) + (f.ec_m or 0) if f.scheme == "ec" else f.rf
+        state = "healthy"
+        if n < need:
+            state = "unavailable"
+        elif n < target:
+            state = "repairing" if pend else "under_replicated"
+        if rank[state] > rank[out[fid]]:
+            out[fid] = state
+    return out
+
+
 @router.get("/fs")
 def list_folder(request: Request, path: str = "/", user: User = Depends(require_csrf)):
     dm = _dm(request)
     norm = ns.normalize(path)
     folders, files = dm.listdir(user.id, norm)
     base = "" if norm == "/" else norm
+    health = file_health(dm, files)
     return {
         "path": norm,
         "folders": [{"name": d.name, "path": f"{base}/{d.name}"} for d in folders],
-        "files": [file_json(f, f"{base}/{f.name}") for f in files],
+        "files": [
+            {**file_json(f, f"{base}/{f.name}"), "health": health.get(f.id, "healthy")}
+            for f in files
+        ],
     }
 
 
