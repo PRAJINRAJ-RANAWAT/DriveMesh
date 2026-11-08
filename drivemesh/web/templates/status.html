@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DriveMesh · Cluster status</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">DriveMesh</span>
+    <nav><a href="/">Files</a><a href="/status" aria-current="page">Cluster status</a></nav>
+    <span class="spacer"></span>
+    <span id="updated" class="muted small"></span>
+  </header>
+  <main class="content wide">
+    <div id="safe-mode" class="banner hidden"></div>
+    <section class="tiles">
+      <div class="tile"><span class="label">Healthy replicas</span><span id="t-ok" class="value">–</span></div>
+      <div class="tile"><span class="label">Under-replicated chunks</span><span id="t-under" class="value">–</span></div>
+      <div class="tile"><span class="label">Unavailable chunks</span><span id="t-unavail" class="value">–</span></div>
+      <div class="tile"><span class="label">Queued jobs</span><span id="t-jobs" class="value">–</span></div>
+      <div class="tile"><span class="label">Last metadata backup</span><span id="t-backup" class="value small">–</span></div>
+    </section>
+    <h2>Accounts</h2>
+    <div id="account-cards" class="cards"></div>
+    <h2>Replica states</h2>
+    <table class="files"><tbody id="replica-states"></tbody></table>
+    <h2>Dead jobs</h2>
+    <table class="files"><tbody id="dead-jobs"></tbody></table>
+    <h2>Recent events</h2>
+    <table class="files"><tbody id="events"></tbody></table>
+  </main>
+  <script src="/static/common.js"></script>
+  <script src="/static/status.js"></script>
+</body>
+</html>
