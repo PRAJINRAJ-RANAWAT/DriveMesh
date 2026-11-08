@@ -1,0 +1,88 @@
+/* DriveMesh design tokens: the single source of truth for every page.
+   Palette: base #F5F3EE · surface (charcoal) #1C1C1C · accent #FF5A1F, applied 60-30-10.
+   Contrast notes (docs/design/08-ui-reference.md): accent text only on charcoal (5.47:1);
+   on base use --color-accent-ink (5.01:1). */
+
+@font-face { font-family: "Inter"; src: url("/static/fonts/inter-latin.woff2") format("woff2"); font-weight: 400 700; font-display: swap; }
+@font-face { font-family: "Space Grotesk"; src: url("/static/fonts/space-grotesk-latin.woff2") format("woff2"); font-weight: 500 700; font-display: swap; }
+@font-face { font-family: "JetBrains Mono"; src: url("/static/fonts/jetbrains-mono-latin.woff2") format("woff2"); font-weight: 400 600; font-display: swap; }
+
+:root {
+  /* palette */
+  --color-base: #F5F3EE;
+  --color-surface: #1C1C1C;
+  --color-accent: #FF5A1F;
+  /* derived tones (tints/shades of the three, never new hues) */
+  --color-base-2: #ECE9E2;
+  --color-base-3: #E2DED5;
+  --color-surface-2: #262626;
+  --color-surface-3: #303030;
+  --color-ink: var(--color-surface);
+  --color-ink-muted: #5E5A53;
+  --color-on-surface: var(--color-base);
+  --color-on-surface-muted: #A8A39A;
+  --color-on-accent: var(--color-surface);
+  --color-accent-ink: #B8400F;
+  --color-accent-soft: rgba(255, 90, 31, 0.12);
+  --color-field: #FFFFFF;           /* input fields: brightest tint of base */
+  --color-scrim: rgba(28, 28, 28, 0.55);
+  --color-base-glass: rgba(245, 243, 238, 0.78);
+  --color-surface-glass: rgba(28, 28, 28, 0.8);
+  --color-line: rgba(28, 28, 28, 0.12);
+  --color-line-strong: rgba(28, 28, 28, 0.26);
+  --color-line-dark: rgba(245, 243, 238, 0.12);
+  --color-line-dark-strong: rgba(245, 243, 238, 0.26);
+  /* functional status (badges only) */
+  --color-ok: #2E6B45;
+  --color-warn: #8A5600;
+  --color-danger: #B42318;
+  --color-ok-dark: #7BC79A;
+  --color-warn-dark: #E8B04B;
+  --color-danger-dark: #FF8A7A;
+
+  /* type */
+  --font-display: "Space Grotesk", "Inter", system-ui, sans-serif;
+  --font-body: "Inter", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --fs-display: clamp(2.5rem, 5.6vw, 5.1rem);
+  --fs-h1: clamp(2.4rem, 5.5vw, 4.5rem);
+  --fs-h2: clamp(2rem, 4vw, 3.25rem);
+  --fs-h3: 1.375rem;
+  --fs-lead: clamp(1.05rem, 1.5vw, 1.2rem);
+  --fs-body: 1rem;
+  --fs-small: 0.875rem;
+  --fs-micro: 0.72rem;
+  --fs-nano: 0.68rem;
+  --lh-tight: 0.95;
+  --lh-snug: 1.2;
+  --lh-body: 1.6;
+  --tracking-tight: -0.035em;
+  --tracking-label: 0.16em;
+
+  /* space (4 px base) */
+  --space-1: 4px; --space-2: 8px; --space-3: 12px; --space-4: 16px; --space-5: 24px;
+  --space-6: 32px; --space-7: 48px; --space-8: 64px; --space-9: 96px; --space-10: 128px;
+
+  /* radius */
+  --radius-sm: 6px; --radius-md: 12px; --radius-lg: 16px; --radius-xl: 24px; --radius-pill: 999px;
+
+  /* depth */
+  --shadow-1: 0 1px 2px rgba(28, 28, 28, 0.06);
+  --shadow-2: 0 8px 32px rgba(28, 28, 28, 0.10);
+  --shadow-3: 0 24px 80px rgba(28, 28, 28, 0.18);
+  --glow-accent: 0 0 0 1px rgba(255, 90, 31, 0.35), 0 12px 40px rgba(255, 90, 31, 0.32);
+  --glow-hero: radial-gradient(48% 55% at 70% 40%, rgba(255, 90, 31, 0.16) 0%, rgba(255, 90, 31, 0.05) 45%, transparent 72%);
+  --grid-lines: linear-gradient(var(--color-line) 1px, transparent 1px), linear-gradient(90deg, var(--color-line) 1px, transparent 1px);
+
+  /* motion */
+  --dur-1: 150ms; --dur-2: 250ms; --dur-3: 450ms; --dur-4: 800ms;
+  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+
+  /* layout */
+  --max-w: 1200px;
+  --gutter: clamp(16px, 4vw, 32px);
+  --nav-h: 64px;
+
+  color-scheme: light;
+}

@@ -22,3 +22,5 @@ dist/
 data/
 bench/out/
 bench/work/
+.DS_Store
+3D model/
