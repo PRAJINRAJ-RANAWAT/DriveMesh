@@ -15,8 +15,8 @@
 | Phase 3 Scalability | ✅ done |
 | Phase 4 Web app | ✅ done |
 | Phase 5 Security | ✅ done |
-| Phase 6 Proof | ⏳ next |
-| Phase 7 Deployment | ☐ |
+| Phase 6 Proof | ✅ done (local/simulated); real-Drive runs pending |
+| Phase 7 Deployment | ✅ artifacts ready; deploy pending (owner, MANUAL_STEPS §5) |
 
 ## Phase 0 summary
 - Legacy prototype moved to `legacy/` unchanged (ADR-017).
@@ -73,5 +73,31 @@
 - ruff bandit rules (`S`) enabled; `pip-audit` CI job (0 known vulnerabilities on 2026-11-08).
 - Already in place from earlier phases: CSRF, CSP, login throttle, upload limits, envelope encryption and rewrap.
 
+## Phase 6 summary
+- Benchmarks (`python -m bench.run …`) and chaos experiments (`python -m bench.chaos …`), all recorded in results.md (R-001…R-009).
+- Measurement found and fixed four real problems:
+  - writer head-of-line blocking
+  - short-run placement imbalance (fixed with load-aware power-of-two-choices)
+  - serial repair (now parallel)
+  - a quadratic repair scan / fsck (composite index, single-pass fsck, plan regression test)
+- One negative result recorded: a larger SQLite page cache didn't help.
+- Chaos: 70 trials across 7 experiments, 0 files lost, 0 wrong bytes, fsck clean and 0 orphans every time.
+
+## Phase 7 summary
+- Multi-stage `Dockerfile` (non-root, healthcheck, migrations at startup), `.dockerignore`, `render.yaml` (Render free + Neon).
+- CI `docker` job builds the image and smoke-tests it in prod mode against Postgres. That test caught a real bug (reserved log key crashing the backup worker).
+- README rewritten with architecture, results and limitations. `MANUAL_STEPS.md` covers everything that needs the owner.
+
+## Next (owner)
+1. MANUAL_STEPS §1: rotate the leaked OAuth client and destroy the old Fernet key (import legacy data first if wanted).
+2. §2–3: create the OAuth web client and link real Gmail accounts locally.
+3. §4: real-Drive benchmarks → fill the `gdrive` rows in results.md and the resume placeholders.
+4. §5: deploy to Render + Neon.
+5. §6: record the demo video.
+
 ## Open issues
 - OAuth client secret and the legacy `.key` rotation are pending (owner action; see MANUAL_STEPS.md).
+- Not measured on real Google Drive yet: every throughput, repair and chunk-size number is local or simulated.
+- SQLite slows down beyond ~100k chunks (R-007); use Postgres for large pools.
+- Docker image is 568 MB, mostly google-api-python-client. A slimmer image is possible by dropping unused extras.
+- Placement is load-aware, so it isn't a pure function of (chunk, accounts) (ADR-005a).
