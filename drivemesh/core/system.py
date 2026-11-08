@@ -22,6 +22,7 @@ from drivemesh import crypto, metrics
 from drivemesh.config import Settings
 from drivemesh.core import gc as _gc  # noqa: F401  (registers job handlers)
 from drivemesh.core import namespace as ns
+from drivemesh.core import workers as _workers  # noqa: F401  (registers job handlers)
 from drivemesh.core.accounts import AccountRegistry
 from drivemesh.core.jobs import JobQueue, enqueue
 from drivemesh.core.reader import FileReader
