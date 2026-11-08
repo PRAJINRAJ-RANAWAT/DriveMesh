@@ -1,3 +1,3 @@
-Inter (https://rsms.me/inter/), JetBrains Mono (https://www.jetbrains.com/lp/mono/) and Space Grotesk (https://github.com/floriankarsten/space-grotesk)
-are licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
-Files are the latin-subset variable woff2 builds served by Google Fonts.
+Geist and Geist Mono (https://vercel.com/font, https://github.com/vercel/geist-font) are
+licensed under the SIL Open Font License, Version 1.1 (https://openfontlicense.org).
+Files are the latin-subset variable woff2 builds (weights 100-900) served by Google Fonts.

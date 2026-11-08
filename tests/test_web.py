@@ -113,7 +113,7 @@ def test_static_assets_are_cacheable_pages_are_not(client):
     for asset in ("/static/css/tokens.css", "/static/css/landing.css", "/static/js/landing.js"):
         r = client.get(asset)
         assert r.status_code == 200 and r.headers["cache-control"].startswith("public"), asset
-    assert client.get("/static/fonts/jetbrains-mono-latin.woff2").status_code == 200
+    assert client.get("/static/fonts/geist-mono-latin.woff2").status_code == 200
     assert client.get("/login").headers["cache-control"] == "no-store"
 
 

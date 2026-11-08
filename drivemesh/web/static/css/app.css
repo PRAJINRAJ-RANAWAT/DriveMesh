@@ -53,7 +53,7 @@
 .kpi.dark { background: var(--color-surface); color: var(--color-on-surface); }
 .kpi-hero .label, .kpi-hero .muted { color: var(--color-on-surface-muted); }
 .kpi-hero .meter { background: var(--color-surface-3); margin: var(--space-2) 0; }
-.kpi-value { font: 700 2.2rem / 1.05 var(--font-display); letter-spacing: var(--tracking-tight); overflow-wrap: anywhere; }
+.kpi-value { font: var(--fw-display) 2.2rem / 1.05 var(--font-display); letter-spacing: var(--tracking-tight); overflow-wrap: anywhere; }
 .kpi-value.accent { color: var(--color-accent); }
 .kpi-value.bad { color: var(--color-danger); }
 .kpi-value.kpi-small { font-size: 1.15rem; font-family: var(--font-body); font-weight: 600; letter-spacing: 0; }
@@ -184,7 +184,7 @@ table.kv { width: 100%; border-collapse: collapse; }
 .am-n rect { fill: var(--color-surface-2); stroke: var(--color-on-surface-muted); stroke-width: 1.4; }
 .am-core { fill: var(--color-surface-3); stroke: var(--color-accent); stroke-width: 1.6; }
 .am-dot { fill: var(--color-accent); }
-.auth-punch { font: 700 clamp(1.6rem, 3vw, 2.4rem) / 1.12 var(--font-display); letter-spacing: -0.025em; color: var(--color-accent); max-width: 16ch; margin-bottom: var(--space-4); }
+.auth-punch { font: var(--fw-display) clamp(1.6rem, 3vw, 2.4rem) / 1.12 var(--font-display); letter-spacing: -0.025em; color: var(--color-accent); max-width: 16ch; margin-bottom: var(--space-4); }
 .auth-art .muted { color: var(--color-on-surface-muted); }
 .auth-main { display: grid; place-items: center; padding: var(--space-7) var(--gutter); }
 .auth-main.full { min-height: 100vh; }
