@@ -296,3 +296,18 @@ def test_transient_failure_on_read_falls_back(dm, user, accounts):
     except ChunkUnavailable:
         got = None
     assert got in (None, data)
+
+
+def test_w02_removing_middle_account_does_not_remap_others(dm, user, accounts):
+    """Legacy bug: chunks referenced accounts by list index, so removing one shifted the rest."""
+    data = payload(6 * CHUNK)
+    dm.put(user.id, "/f", data)
+    with dm.session() as s:
+        from drivemesh.db import LinkedAccount
+
+        s.get(LinkedAccount, accounts[1].id).state = "removed"  # middle account gone
+    dm.accounts.link_memory(user.id, "acct-d")  # and a new one appended
+    assert dm.get_bytes(user.id, "/f") == data  # every surviving replica still resolves
+    with dm.session() as s:
+        ids = set(s.scalars(select(Replica.account_id)))
+    assert ids <= {a.id for a in accounts}
