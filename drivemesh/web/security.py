@@ -77,6 +77,25 @@ class LoginThrottle:
         return b.try_acquire()
 
 
+class SelectiveGZipMiddleware:
+    """gzip for pages, CSS/JS and JSON. Never for encrypted file streams (incompressible, and
+    compressing would break Content-Length/Range) or for already-compressed fonts."""
+
+    SKIP = ("/api/v1/files/content", "/static/fonts/")
+
+    def __init__(self, app, minimum_size: int = 700):
+        from starlette.middleware.gzip import GZipMiddleware
+
+        self.app = app
+        self.gzip = GZipMiddleware(app, minimum_size=minimum_size)
+
+    async def __call__(self, scope, receive, send):
+        if scope["type"] == "http" and not scope["path"].startswith(self.SKIP):
+            await self.gzip(scope, receive, send)
+        else:
+            await self.app(scope, receive, send)
+
+
 class RequestContextMiddleware(BaseHTTPMiddleware):
     def __init__(self, app, hsts: bool = False):
         super().__init__(app)
@@ -96,8 +115,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("X-Frame-Options", "DENY")
         if request.url.path.startswith("/static/"):
-            # fonts/CSS/JS are public and versioned with the app; cache them for a day
-            response.headers["Cache-Control"] = "public, max-age=86400"
+            # Fingerprinted URLs (?v=<content hash>) never change: cache them for a year.
+            versioned = "v=" in request.url.query
+            response.headers["Cache-Control"] = (
+                "public, max-age=31536000, immutable" if versioned else "public, max-age=86400"
+            )
         else:
             response.headers.setdefault("Cache-Control", "no-store")
         if self.hsts:
