@@ -21,3 +21,4 @@ build/
 dist/
 data/
 bench/out/
+bench/work/

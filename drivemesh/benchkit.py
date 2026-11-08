@@ -42,6 +42,7 @@ class Measurement:
     wall_seconds: float = 0.0
     cpu_seconds: float = 0.0
     peak_rss_bytes: int = 0
+    baseline_rss_bytes: int = 0  # peak RSS before the measured block (imports, runtime)
     metrics: dict[str, Any] = field(default_factory=dict)
     env: dict[str, Any] = field(default_factory=environment)
     timestamp: str = field(default_factory=lambda: time.strftime("%Y-%m-%dT%H:%M:%S"))
@@ -52,7 +53,7 @@ class Measurement:
 
 @contextmanager
 def measure(name: str, **params: Any) -> Iterator[Measurement]:
-    m = Measurement(name=name, params=params)
+    m = Measurement(name=name, params=params, baseline_rss_bytes=peak_rss_bytes())
     t0, c0 = time.perf_counter(), time.process_time()
     try:
         yield m
@@ -65,6 +66,11 @@ def measure(name: str, **params: Any) -> Iterator[Measurement]:
 def save(m: Measurement, out_dir: str | os.PathLike[str] = "bench/out") -> Path:
     path = Path(out_dir)
     path.mkdir(parents=True, exist_ok=True)
-    target = path / f"{m.name}-{m.timestamp.replace(':', '')}.json"
+    stem = f"{m.name}-{m.timestamp.replace(':', '')}"
+    target = path / f"{stem}.json"
+    n = 1
+    while target.exists():  # never overwrite an earlier result from the same second
+        target = path / f"{stem}-{n}.json"
+        n += 1
     target.write_text(m.to_json())
     return target
