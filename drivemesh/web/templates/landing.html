@@ -1,214 +1,289 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>DriveMesh: many drives, one mesh</title>
+{% include "_head.html" %}
+  <title>DriveMesh: five accounts, one giant drive</title>
   <meta name="description" content="DriveMesh pools the storage accounts you already own into one encrypted, self-healing storage space.">
-  <meta name="theme-color" content="#0B0F1A">
-  <link rel="preload" href="/static/fonts/space-grotesk-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="preload" href="/static/fonts/inter-latin.woff2" as="font" type="font/woff2" crossorigin>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/css/landing.css">
 </head>
-<body>
-  <header class="site-nav">
-    <div class="wrap">
-      <a class="brand" href="/">{% include "_logo.html" %}DriveMesh</a>
-      <nav aria-label="Sections">
+<body class="landing">
+  <a class="skip" href="#main">Skip to content</a>
+
+  <!-- 1 · navbar -->
+  <header class="site-nav" id="site-nav">
+    <div class="wrap nav-inner">
+      <a class="brand" href="/" aria-label="DriveMesh home">{% include "_logo.html" %}DriveMesh</a>
+      <nav class="nav-links" aria-label="Sections">
         <a href="#how">How it works</a>
         <a href="#durability">Durability</a>
+        <a href="#security">Security</a>
         <a href="https://github.com/PRAJINRAJ-RANAWAT/DriveMesh">GitHub</a>
       </nav>
       <span class="spacer"></span>
       {% if logged_in %}
-        <a class="btn btn-primary btn-sm" href="/app">Open DriveMesh</a>
+        <a class="btn btn-ghost btn-sm nav-secondary" href="/app">Dashboard</a>
       {% else %}
-        <a class="btn btn-sm" href="/login">Sign in</a>
+        <a class="btn btn-ghost btn-sm nav-secondary" href="/login">Sign in</a>
       {% endif %}
+      <a class="btn btn-primary btn-sm" href="{{ cta_href }}">Start meshing <span class="arrow" aria-hidden="true">→</span></a>
     </div>
   </header>
 
-  <main>
-    <section class="hero">
-      <div class="wrap">
-        <div>
-          <span class="eyebrow"><span class="dot"></span>Encrypted · Replicated · Self-healing</span>
-          <h1>Five Google accounts. <span class="scribble" data-scribble>One giant drive.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M3 14 C 50 6, 120 6, 197 11"/></svg></span></h1>
-          <p class="lede">DriveMesh pools the Google accounts you already own into one encrypted, self-healing storage space. Every file is split, encrypted and replicated — even if an account vanishes, your files don't.</p>
+  <main id="main">
+    <!-- 2 · hero -->
+    <section class="hero" aria-labelledby="hero-title">
+      <div class="hero-bg" aria-hidden="true"></div>
+      <div class="wrap hero-grid">
+        <div class="hero-copy">
+          <p class="eyebrow"><span class="dot" aria-hidden="true"></span>Encrypted · Replicated · Self-healing</p>
+          <h1 id="hero-title" class="display">Five Google accounts. <span class="scribble" data-scribble>One giant drive.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M3 14 C 50 6, 120 6, 197 11"/></svg></span></h1>
+          <p class="lead">DriveMesh pools the Google accounts you already own into one encrypted, self-healing storage space. Every file is split, encrypted and replicated — even if an account vanishes, your files don't.</p>
           <div class="cta-row">
-            <a class="btn btn-primary btn-lg" href="{{ '/app' if logged_in else '/login' }}">Start meshing</a>
-            <a class="btn btn-lg" href="#how">See how it works</a>
+            <a class="btn btn-primary btn-lg" href="{{ cta_href }}">Start meshing <span class="arrow" aria-hidden="true">→</span></a>
+            <a class="btn btn-lg" href="#how">See how it works <span class="arrow" aria-hidden="true">↓</span></a>
           </div>
-          <p class="fine">Works with accounts you own. Not affiliated with Google.</p>
+          <ul class="hero-facts" aria-label="Highlights">
+            <li><b>2×</b><span class="label">copies per chunk</span></li>
+            <li><b>256-bit</b><span class="label">AES-GCM keys</span></li>
+            <li><b>0</b><span class="label">plaintext on Google</span></li>
+          </ul>
         </div>
 
-        <div class="mesh-visual" role="img" aria-label="Five storage accounts connected to one DriveMesh core">
-          <svg viewBox="0 0 480 400">
-            <g>
-              <line class="mesh-link" x1="240" y1="200" x2="240" y2="52"/>
-              <line class="mesh-link" x1="240" y1="200" x2="383" y2="154"/>
-              <line class="mesh-link" x1="240" y1="200" x2="328" y2="322"/>
-              <line class="mesh-link" x1="240" y1="200" x2="152" y2="322"/>
-              <line class="mesh-link" x1="240" y1="200" x2="97" y2="154"/>
-              <line class="mesh-link" x1="240" y1="52" x2="383" y2="154"/>
-              <line class="mesh-link" x1="383" y1="154" x2="328" y2="322"/>
-              <line class="mesh-link" x1="328" y1="322" x2="152" y2="322"/>
-              <line class="mesh-link" x1="152" y1="322" x2="97" y2="154"/>
-              <line class="mesh-link" x1="97" y1="154" x2="240" y2="52"/>
-              <line class="mesh-pulse" x1="240" y1="200" x2="240" y2="52"/>
-              <line class="mesh-pulse p2" x1="240" y1="200" x2="328" y2="322"/>
-              <line class="mesh-pulse p3" x1="240" y1="200" x2="97" y2="154"/>
-              <line class="mesh-pulse p2" x1="383" y1="154" x2="240" y2="200"/>
-              <line class="mesh-pulse p3" x1="152" y1="322" x2="240" y2="200"/>
+        <figure class="hero-visual" aria-label="Five storage accounts connected to one DriveMesh core, with encrypted chunks travelling between them">
+          <svg viewBox="0 0 480 420" aria-hidden="true">
+            <defs>
+              <path id="l1" d="M240 210 L240 62"/><path id="l2" d="M240 210 L392 162"/><path id="l3" d="M240 210 L334 346"/>
+              <path id="l4" d="M240 210 L146 346"/><path id="l5" d="M240 210 L88 162"/>
+              <path id="r1" d="M240 62 L392 162"/><path id="r3" d="M334 346 L146 346"/><path id="r5" d="M88 162 L240 62"/>
+            </defs>
+            <g class="mesh-lines">
+              <use href="#l1"/><use href="#l2"/><use href="#l3"/><use href="#l4"/><use href="#l5"/>
+              <use href="#r1"/><path d="M392 162 L334 346"/><use href="#r3"/><path d="M146 346 L88 162"/><use href="#r5"/>
             </g>
-            <g class="float">
-              <rect class="drive-body" x="202" y="29" width="76" height="46" rx="10"/>
-              <line class="drive-slot" x1="214" y1="52" x2="250" y2="52"/><circle class="drive-led" cx="264" cy="52" r="3.5"/>
-              <text class="drive-label" x="240" y="93">acct 1</text>
+            <g class="mesh-pulses">
+              <use href="#l1"/><use href="#l3" class="p2"/><use href="#l5" class="p3"/><use href="#r1" class="p2"/><use href="#r3" class="p3"/>
             </g>
-            <g class="float f2">
-              <rect class="drive-body" x="345" y="131" width="76" height="46" rx="10"/>
-              <line class="drive-slot" x1="357" y1="154" x2="393" y2="154"/><circle class="drive-led" cx="407" cy="154" r="3.5"/>
-              <text class="drive-label" x="383" y="195">acct 2</text>
+            <g class="packets">
+              <rect class="packet" x="-5" y="-5" width="10" height="10" rx="2.5"><animateMotion dur="2.8s" repeatCount="indefinite"><mpath href="#l1"/></animateMotion></rect>
+              <rect class="packet" x="-5" y="-5" width="10" height="10" rx="2.5"><animateMotion dur="3.4s" begin="-1.1s" repeatCount="indefinite"><mpath href="#l3"/></animateMotion></rect>
+              <rect class="packet" x="-5" y="-5" width="10" height="10" rx="2.5"><animateMotion dur="3.1s" begin="-2s" repeatCount="indefinite"><mpath href="#l5"/></animateMotion></rect>
+              <rect class="packet" x="-5" y="-5" width="10" height="10" rx="2.5"><animateMotion dur="3.8s" begin="-0.6s" repeatCount="indefinite"><mpath href="#r1"/></animateMotion></rect>
+              <rect class="packet" x="-5" y="-5" width="10" height="10" rx="2.5"><animateMotion dur="4.2s" begin="-2.6s" repeatCount="indefinite"><mpath href="#r3"/></animateMotion></rect>
             </g>
-            <g class="float f3">
-              <rect class="drive-body" x="290" y="299" width="76" height="46" rx="10"/>
-              <line class="drive-slot" x1="302" y1="322" x2="338" y2="322"/><circle class="drive-led" cx="352" cy="322" r="3.5"/>
-              <text class="drive-label" x="328" y="363">acct 3</text>
-            </g>
-            <g class="float f4">
-              <rect class="drive-body" x="114" y="299" width="76" height="46" rx="10"/>
-              <line class="drive-slot" x1="126" y1="322" x2="162" y2="322"/><circle class="drive-led" cx="176" cy="322" r="3.5"/>
-              <text class="drive-label" x="152" y="363">acct 4</text>
-            </g>
-            <g class="float f5">
-              <rect class="drive-body" x="59" y="131" width="76" height="46" rx="10"/>
-              <line class="drive-slot" x1="71" y1="154" x2="107" y2="154"/><circle class="drive-led" cx="121" cy="154" r="3.5"/>
-              <text class="drive-label" x="97" y="195">acct 5</text>
-            </g>
-            <g>
-              <rect class="core-body" x="184" y="165" width="112" height="70" rx="16"/>
-              <rect class="core-lock" x="231" y="186" width="18" height="14" rx="3"/>
-              <path class="core-lock" d="M234 186 v-4 a6 6 0 0 1 12 0 v4"/>
-              <text class="core-label" x="240" y="223">DRIVEMESH</text>
+            <g transform="translate(240 62)"><g class="node f1"><rect x="-40" y="-25" width="80" height="50" rx="11"/><line x1="-26" y1="0" x2="10" y2="0"/><circle cx="24" cy="0" r="4"/><text y="44">account 1</text></g></g>
+            <g transform="translate(392 162)"><g class="node f2"><rect x="-40" y="-25" width="80" height="50" rx="11"/><line x1="-26" y1="0" x2="10" y2="0"/><circle cx="24" cy="0" r="4"/><text y="44">account 2</text></g></g>
+            <g transform="translate(334 346)"><g class="node f3"><rect x="-40" y="-25" width="80" height="50" rx="11"/><line x1="-26" y1="0" x2="10" y2="0"/><circle cx="24" cy="0" r="4"/><text y="44">account 3</text></g></g>
+            <g transform="translate(146 346)"><g class="node f4"><rect x="-40" y="-25" width="80" height="50" rx="11"/><line x1="-26" y1="0" x2="10" y2="0"/><circle cx="24" cy="0" r="4"/><text y="44">account 4</text></g></g>
+            <g transform="translate(88 162)"><g class="node f5"><rect x="-40" y="-25" width="80" height="50" rx="11"/><line x1="-26" y1="0" x2="10" y2="0"/><circle cx="24" cy="0" r="4"/><text y="44">account 5</text></g></g>
+            <g class="core" transform="translate(240 210)">
+              <rect x="-62" y="-40" width="124" height="80" rx="18"/>
+              <rect class="lock" x="-10" y="-17" width="20" height="16" rx="3.5"/><path class="lock" d="M-6.5 -17 v-4.5 a6.5 6.5 0 0 1 13 0 v4.5"/>
+              <text y="22">DRIVEMESH</text>
             </g>
           </svg>
-        </div>
+        </figure>
       </div>
     </section>
 
-    <section class="section" id="how">
+    <!-- 3 · stats strip -->
+    <section class="stats dark" aria-label="Measured results">
+      <div class="wrap stats-grid">
+        <div class="stat"><span class="stat-value">0</span><span class="label">files lost · 70 chaos trials</span></div>
+        <div class="stat"><span class="stat-value">AES-256</span><span class="label">GCM on every chunk</span></div>
+        <div class="stat"><span class="stat-value">2× / 1.5×</span><span class="label">replication or erasure coding</span></div>
+        <div class="stat"><span class="stat-value">{{ test_count }}</span><span class="label">automated tests · {{ coverage }} coverage</span></div>
+      </div>
+      <p class="wrap stats-note small">Measured on local disk and a simulated network; real Google Drive runs are pending. Methods in <a href="https://github.com/PRAJINRAJ-RANAWAT/DriveMesh/blob/main/docs/design/results.md">results.md</a>.</p>
+    </section>
+
+    <!-- 4 · how it works -->
+    <section class="section" id="how" aria-labelledby="how-title">
       <div class="wrap">
         <div class="section-head">
-          <p class="kicker">How it works</p>
-          <h2>Three steps from scattered storage to one durable drive.</h2>
+          <p class="eyebrow">How it works</p>
+          <h2 id="how-title">Three steps from scattered storage to one durable drive.</h2>
         </div>
-        <div class="steps">
-          <article class="step reveal">
-            <span class="step-num">1</span>
-            <svg viewBox="0 0 44 44" aria-hidden="true"><rect class="step-icon" x="4" y="8" width="16" height="11" rx="3"/><rect class="step-icon" x="24" y="8" width="16" height="11" rx="3"/><rect class="step-icon" x="14" y="27" width="16" height="11" rx="3"/><path class="step-icon" d="M12 19 L19 27 M32 19 L25 27"/></svg>
+        <ol class="steps">
+          <li class="step reveal">
+            <span class="step-num label">01</span>
+            <svg class="step-icon icon-link" viewBox="0 0 64 64" aria-hidden="true"><rect class="a" x="6" y="10" width="22" height="16" rx="4"/><rect class="b" x="36" y="10" width="22" height="16" rx="4"/><rect class="c" x="21" y="40" width="22" height="16" rx="4"/><path class="w" d="M17 26 L28 40 M47 26 L36 40"/></svg>
             <h3>Link your accounts</h3>
-            <p>Connect the Google accounts you own with a least-privilege scope: DriveMesh can only touch the files it creates.</p>
-          </article>
-          <article class="step reveal">
-            <span class="step-num">2</span>
-            <svg viewBox="0 0 44 44" aria-hidden="true"><rect class="step-icon" x="6" y="6" width="14" height="14" rx="3"/><rect class="step-icon" x="24" y="6" width="14" height="14" rx="3"/><rect class="step-icon" x="6" y="24" width="14" height="14" rx="3"/><rect class="step-icon" x="26" y="28" width="10" height="9" rx="2"/><path class="step-icon" d="M28 28 v-3 a3 3 0 0 1 6 0 v3"/></svg>
+            <p class="muted">Connect the Google accounts you own. DriveMesh asks for the narrowest Drive permission: it can only see files it created.</p>
+          </li>
+          <li class="step reveal">
+            <span class="step-num label">02</span>
+            <svg class="step-icon icon-split" viewBox="0 0 64 64" aria-hidden="true"><rect class="a" x="8" y="8" width="20" height="20" rx="4"/><rect class="b" x="36" y="8" width="20" height="20" rx="4"/><rect class="c" x="8" y="36" width="20" height="20" rx="4"/><rect class="d" x="38" y="40" width="16" height="14" rx="3"/><path class="w" d="M41 40 v-4 a5 5 0 0 1 10 0 v4"/></svg>
             <h3>Split &amp; encrypt</h3>
-            <p>Every file is streamed in 8 MiB chunks, each sealed with AES-256-GCM under its own per-file key and bound to its position.</p>
-          </article>
-          <article class="step reveal">
-            <span class="step-num">3</span>
-            <svg viewBox="0 0 44 44" aria-hidden="true"><rect class="step-icon" x="15" y="4" width="14" height="10" rx="3"/><rect class="step-icon" x="4" y="30" width="14" height="10" rx="3"/><rect class="step-icon" x="26" y="30" width="14" height="10" rx="3"/><path class="step-icon" d="M22 14 L11 30 M22 14 L33 30"/></svg>
-            <h3>Replicate across accounts</h3>
-            <p>Each chunk lands on two or more different accounts, chosen by free space and load. Background workers keep it that way.</p>
-          </article>
+            <p class="muted">Files stream through in 8 MiB chunks. Each chunk is sealed with AES-256-GCM under its own per-file key and bound to its position.</p>
+          </li>
+          <li class="step reveal">
+            <span class="step-num label">03</span>
+            <svg class="step-icon icon-heal" viewBox="0 0 64 64" aria-hidden="true"><rect class="a" x="21" y="6" width="22" height="16" rx="4"/><rect class="b" x="6" y="42" width="22" height="16" rx="4"/><rect class="c" x="36" y="42" width="22" height="16" rx="4"/><path class="w" d="M32 22 L17 42 M32 22 L47 42"/><path class="d" d="M24 50 h16"/></svg>
+            <h3>Replicate &amp; self-heal</h3>
+            <p class="muted">Every chunk lives on two or more different accounts. If one disappears, background workers rebuild the missing copies.</p>
+          </li>
+        </ol>
+      </div>
+    </section>
+
+    <!-- 5 · what happens if an account dies (scroll-driven) -->
+    <section class="scene dark" id="durability" aria-labelledby="dur-title" data-scene>
+      <div class="scene-stage">
+        <span class="scene-word" aria-hidden="true">HEAL</span>
+        <div class="wrap scene-grid">
+          <div class="scene-copy">
+            <p class="eyebrow">Durability</p>
+            <h2 id="dur-title">What happens if an account dies?</h2>
+            <ol class="scene-steps">
+              <li data-step="0"><span class="label">01</span><b>Everything is replicated</b><span>Every chunk sits on two different accounts.</span></li>
+              <li data-step="1"><span class="label">02</span><b>An account vanishes</b><span>Heartbeats fail; reads switch to the surviving copy instantly.</span></li>
+              <li data-step="2"><span class="label">03</span><b>Copies are rebuilt</b><span>Chunks down to one copy are verified and re-copied first.</span></li>
+              <li data-step="3"><span class="label">04</span><b>Back to full strength</b><span>Every chunk is on two healthy accounts again.</span></li>
+            </ol>
+            <p class="scene-punch">Lost an account? <span class="scribble" data-scribble-scene>We already made copies.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M2 12 C 40 18, 90 4, 140 10 S 185 15, 198 8"/></svg></span></p>
+          </div>
+          <figure class="scene-visual" role="img" aria-label="Animation: account D disappears; its two chunks are re-copied from accounts A and C onto healthy accounts">
+            <svg viewBox="0 0 440 340" aria-hidden="true">
+              <g class="sv-links"><path d="M110 80 H330 M330 80 V250 M330 250 H110 M110 250 V80 M110 80 L330 250"/></g>
+              <g class="sv-node" transform="translate(110 80)"><rect x="-75" y="-48" width="150" height="96" rx="16"/><text y="-20">Account A</text>
+                <rect class="ck c1" x="-46" y="0" width="20" height="20" rx="5"/><rect class="ck c2" x="-20" y="0" width="20" height="20" rx="5"/></g>
+              <g class="sv-node" transform="translate(330 80)"><rect x="-75" y="-48" width="150" height="96" rx="16"/><text y="-20">Account B</text>
+                <rect class="ck c1" x="-46" y="0" width="20" height="20" rx="5"/><rect class="ck c3" x="-20" y="0" width="20" height="20" rx="5"/><rect class="ck c4 newcopy" x="6" y="0" width="20" height="20" rx="5"/></g>
+              <g class="sv-node" transform="translate(330 250)"><rect x="-75" y="-48" width="150" height="96" rx="16"/><text y="-20">Account C</text>
+                <rect class="ck c3" x="-46" y="0" width="20" height="20" rx="5"/><rect class="ck c4" x="-20" y="0" width="20" height="20" rx="5"/><rect class="ck c2 newcopy" x="6" y="0" width="20" height="20" rx="5"/></g>
+              <g class="sv-node dying" transform="translate(110 250)"><rect x="-75" y="-48" width="150" height="96" rx="16"/><text y="-20">Account D</text>
+                <rect class="ck c2" x="-46" y="0" width="20" height="20" rx="5"/><rect class="ck c4" x="-20" y="0" width="20" height="20" rx="5"/>
+                <path class="xmark" d="M-22 -14 L22 30 M22 -14 L-22 30"/></g>
+              <rect class="flying c2" id="fly-1" x="90" y="80" width="20" height="20" rx="5"/>
+              <rect class="flying c4" id="fly-2" x="310" y="250" width="20" height="20" rx="5"/>
+              <text class="sv-status" x="220" y="330" id="sv-status">All accounts healthy · every chunk on 2 accounts</text>
+            </svg>
+          </figure>
         </div>
       </div>
     </section>
 
-    <section class="stats" aria-label="Measured results">
+    <!-- 6 · security -->
+    <section class="section" id="security" aria-labelledby="sec-title">
       <div class="wrap">
-        <div class="stat"><div class="stat-value">0</div><div class="stat-label">files lost</div><div class="stat-note">across 70 chaos trials</div></div>
-        <div class="stat"><div class="stat-value">AES-256</div><div class="stat-label">GCM per chunk</div><div class="stat-note">32 bytes of overhead per chunk</div></div>
-        <div class="stat"><div class="stat-value">~0.3 GB</div><div class="stat-label">peak memory</div><div class="stat-note">flat for 1–5 GB files</div></div>
-        <div class="stat"><div class="stat-value">2.8×</div><div class="stat-label">faster self-healing</div><div class="stat-note">after parallelising repair</div></div>
-      </div>
-      <p class="wrap stats-foot">Measured on local disk and a simulated network; real Google Drive runs are pending. Methods: <a href="https://github.com/PRAJINRAJ-RANAWAT/DriveMesh/blob/main/docs/design/results.md">results.md</a>.</p>
-    </section>
-
-    <section class="section">
-      <div class="wrap punches">
-        <p class="punch reveal">Lost an account? We already made copies.</p>
-        <p class="punch reveal">Encrypted before it ever reaches Google.</p>
-      </div>
-    </section>
-
-    <section class="section" id="durability">
-      <div class="wrap durability">
-        <div>
-          <p class="kicker">Durability</p>
-          <h2>What if an account dies?</h2>
-          <p class="muted">Nothing you'd notice. Reads fall back to the other copy instantly, and DriveMesh rebuilds the missing copies on healthy accounts, the same idea that keeps HDFS clusters alive when a machine fails.</p>
-          <ol class="timeline">
-            <li><span class="tick">1</span><span><b>Heartbeat missed</b>The account is marked unreachable; reads skip it immediately.</span></li>
-            <li><span class="tick">2</span><span><b>Most endangered first</b>Chunks down to a single copy are queued ahead of everything else.</span></li>
-            <li><span class="tick">3</span><span><b>Copies rebuilt</b>Each chunk is verified, then copied to an account that doesn't hold it yet.</span></li>
-          </ol>
+        <div class="section-head">
+          <p class="eyebrow">Security</p>
+          <h2 id="sec-title">Google stores the bytes. Only you can read them.</h2>
         </div>
-        <div class="death-visual reveal" data-play role="img" aria-label="Animation: account D disappears and its chunks are re-copied to accounts B and C">
-          <svg viewBox="0 0 480 345">
-            <line class="dv-link" x1="110" y1="95" x2="370" y2="95"/><line class="dv-link" x1="370" y1="95" x2="370" y2="255"/>
-            <line class="dv-link" x1="370" y1="255" x2="110" y2="255"/><line class="dv-link" x1="110" y1="255" x2="110" y2="95"/>
-            <line class="dv-link" x1="110" y1="95" x2="370" y2="255"/>
-            <g><rect class="dv-node" x="35" y="50" width="150" height="90" rx="14"/><text class="dv-name" x="110" y="78">Account A</text>
-              <rect class="dv-chunk dv-c1" x="65" y="94" width="18" height="18" rx="4"/><rect class="dv-chunk dv-c2" x="89" y="94" width="18" height="18" rx="4"/></g>
-            <g><rect class="dv-node" x="295" y="50" width="150" height="90" rx="14"/><text class="dv-name" x="370" y="78">Account B</text>
-              <rect class="dv-chunk dv-c1" x="325" y="94" width="18" height="18" rx="4"/><rect class="dv-chunk dv-c3" x="349" y="94" width="18" height="18" rx="4"/>
-              <rect class="dv-chunk dv-c4 dv-new" x="373" y="94" width="18" height="18" rx="4"/></g>
-            <g><rect class="dv-node" x="295" y="210" width="150" height="90" rx="14"/><text class="dv-name" x="370" y="238">Account C</text>
-              <rect class="dv-chunk dv-c3" x="325" y="254" width="18" height="18" rx="4"/><rect class="dv-chunk dv-c4" x="349" y="254" width="18" height="18" rx="4"/>
-              <rect class="dv-chunk dv-c2 dv-new" x="373" y="254" width="18" height="18" rx="4"/></g>
-            <g class="dv-dying"><rect class="dv-node" x="35" y="210" width="150" height="90" rx="14"/><text class="dv-name" x="110" y="238">Account D</text>
-              <rect class="dv-chunk dv-c2" x="65" y="254" width="18" height="18" rx="4"/><rect class="dv-chunk dv-c4" x="89" y="254" width="18" height="18" rx="4"/></g>
-            <path class="dv-x" d="M92 237 L128 273 M128 237 L92 273"/>
-            <rect class="dv-packet a" x="89" y="94" width="18" height="18" rx="4"/>
-            <rect class="dv-packet b" x="349" y="254" width="18" height="18" rx="4"/>
-            <text class="dv-status dv-s1" x="240" y="333">All accounts healthy · every chunk on 2 accounts</text>
-            <text class="dv-status dv-s2" x="240" y="333">Account D vanished · 2 chunks down to 1 copy</text>
-            <text class="dv-status dv-s3" x="240" y="333">Repaired · every chunk back to 2 copies</text>
+        <div class="sec-grid">
+          <article class="sec-card reveal"><h3>Encrypted before it reaches Google</h3><p class="muted">Each chunk is sealed with AES-256-GCM before upload. The provider only ever sees random-looking objects with random names.</p></article>
+          <article class="sec-card reveal"><h3>Envelope keys</h3><p class="muted">Every file gets its own data key, locked by your master key. Rotating the master key re-locks the small keys and never re-uploads your data.</p></article>
+          <article class="sec-card reveal"><h3>The smallest Drive permission</h3><p class="muted">DriveMesh only asks to see files it created itself. It cannot read your photos, documents or anything else in your Drive.</p></article>
+        </div>
+        <figure class="flow reveal" aria-label="Encryption flow: your file is split into chunks, each chunk is encrypted with a per-file key, that key is locked by your master key, and only ciphertext goes to the storage accounts">
+          <div class="flow-node"><span class="label">your file</span><b>report.pdf</b></div>
+          <span class="flow-arrow" aria-hidden="true"></span>
+          <div class="flow-node"><span class="label">split</span><b>8 MiB chunks</b></div>
+          <span class="flow-arrow" aria-hidden="true"></span>
+          <div class="flow-node key"><span class="label">seal</span><b>AES-256-GCM</b><small>per-file data key</small></div>
+          <span class="flow-arrow" aria-hidden="true"></span>
+          <div class="flow-node ink"><span class="label">store</span><b>dm-7f3a…</b><small>ciphertext × 2 accounts</small></div>
+          <div class="flow-keyring"><span class="label">master key</span> locks every data key · stays with you, never in the database</div>
+        </figure>
+      </div>
+    </section>
+
+    <!-- 7 · architecture -->
+    <section class="section arch dark" id="architecture" aria-labelledby="arch-title">
+      <div class="wrap">
+        <div class="section-head">
+          <p class="eyebrow">Architecture</p>
+          <h2 id="arch-title">Built like HDFS, sized for one person.</h2>
+          <p class="muted">The same roles that keep big storage clusters alive, mapped onto accounts you already own.</p>
+        </div>
+        <div class="arch-diagram reveal">
+          <div class="arch-col">
+            <div class="arch-box"><span class="label">clients</span><b>Web app · CLI</b></div>
+          </div>
+          <span class="arch-arrow" aria-hidden="true"></span>
+          <div class="arch-col">
+            <div class="arch-box hot"><span class="label">metadata service · "namenode"</span><b>Namespace, chunk map, replicas, jobs</b><small>PostgreSQL · atomic two-phase commits</small></div>
+            <div class="arch-box"><span class="label">background workers</span><b>Health · Repair · Scrub · Balance · GC · Backup</b></div>
+          </div>
+          <span class="arch-arrow" aria-hidden="true"></span>
+          <div class="arch-col">
+            <div class="arch-box"><span class="label">storage accounts · "datanodes"</span>
+              <ul class="arch-accounts"><li>Drive account 1</li><li>Drive account 2</li><li>Drive account 3</li><li>Local disk / S3</li></ul></div>
+          </div>
+        </div>
+        <ul class="arch-map" aria-label="HDFS concepts and their DriveMesh equivalents">
+          <li><span class="label">NameNode</span>→ metadata DB</li>
+          <li><span class="label">DataNode</span>→ storage account</li>
+          <li><span class="label">Heartbeat</span>→ health checker</li>
+          <li><span class="label">Re-replication</span>→ repair worker</li>
+          <li><span class="label">Block scanner</span>→ scrubber</li>
+          <li><span class="label">fsimage</span>→ encrypted snapshots</li>
+        </ul>
+      </div>
+    </section>
+
+    <!-- 8 · floating punchlines -->
+    <section class="section punches" aria-label="Why DriveMesh">
+      <div class="wrap punch-grid">
+        <article class="punch reveal">
+          <p class="punch-text">Encrypted before it ever reaches Google.</p>
+          <svg class="punch-art art-lock" viewBox="0 0 120 80" aria-hidden="true"><rect class="o" x="20" y="34" width="80" height="40" rx="9"/><path class="o shackle" d="M38 34 v-10 a22 22 0 0 1 44 0 v10"/><circle class="a" cx="60" cy="54" r="6"/></svg>
+        </article>
+        <article class="punch reveal">
+          <p class="punch-text">Split. Encrypt. Replicate. <span class="scribble" data-scribble>Relax.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M4 9 C 60 16, 110 2, 196 13"/></svg></span></p>
+          <svg class="punch-art art-stack" viewBox="0 0 160 110" aria-hidden="true">
+            <path class="layer l3" d="M80 66 L140 84 L80 102 L20 84 Z"/>
+            <path class="layer l2" d="M80 44 L140 62 L80 80 L20 62 Z"/>
+            <path class="layer l1" d="M80 22 L140 40 L80 58 L20 40 Z"/>
           </svg>
-        </div>
+        </article>
+        <article class="punch reveal">
+          <p class="punch-text">Google sees noise. You see your files.</p>
+          <div class="punch-art art-noise" aria-hidden="true">
+            <svg viewBox="0 0 96 64" class="noise"><g id="noise-cells"></g></svg>
+            <span class="noise-arrow">→</span>
+            <svg viewBox="0 0 48 64" class="file"><path d="M8 4 h22 l12 12 v44 h-34 z M30 4 v12 h12"/><path class="lines" d="M15 30 h20 M15 38 h20 M15 46 h14"/></svg>
+          </div>
+        </article>
+        <article class="punch reveal">
+          <p class="punch-text">Inspired by HDFS — the system behind Big Tech's storage.</p>
+          <svg class="punch-art art-cluster" viewBox="0 0 140 80" aria-hidden="true"><path class="w" d="M25 32 L70 40 L70 22 M70 40 L115 32 M70 40 L47 48 M70 40 L93 48"/><rect x="10" y="12" width="30" height="20" rx="4"/><rect x="55" y="4" width="30" height="20" rx="4"/><rect x="100" y="12" width="30" height="20" rx="4"/><rect x="32" y="48" width="30" height="20" rx="4"/><rect x="78" y="48" width="30" height="20" rx="4"/><circle class="a" cx="70" cy="40" r="6"/></svg>
+        </article>
       </div>
     </section>
 
-    <section class="section">
-      <div class="wrap punches">
-        <p class="punch reveal">Split. Encrypt. Replicate. <span class="scribble" data-scribble>Relax.<svg viewBox="0 0 200 20" preserveAspectRatio="none" aria-hidden="true"><path pathLength="1" d="M3 12 C 60 4, 140 18, 197 8"/></svg></span></p>
-        <p class="punch reveal">Inspired by HDFS — the system behind Big Tech's storage.</p>
-      </div>
-    </section>
-
-    <section class="section cta-band">
-      <div class="wrap">
-        <h2>Your free storage, stacked.</h2>
-        <p class="muted">Link a few accounts, drop in a file, then pull the plug on one of them.</p>
-        <div class="cta-row cta-center">
-          <a class="btn btn-primary btn-lg" href="{{ '/app' if logged_in else '/login' }}">Start meshing</a>
-        </div>
+    <!-- 9 · final CTA -->
+    <section class="cta-band" aria-labelledby="cta-title">
+      <div class="wrap cta-inner">
+        <h2 id="cta-title">Your free storage, stacked.</h2>
+        <p>Link a few accounts, drop in a file, then pull the plug on one of them.</p>
+        <a class="btn btn-dark btn-lg" href="{{ cta_href }}">Start meshing <span class="arrow" aria-hidden="true">→</span></a>
       </div>
     </section>
   </main>
 
-  <footer class="site-footer">
-    <div class="wrap">
-      <a class="brand" href="/">{% include "_logo.html" %}DriveMesh</a>
-      <ul class="stack" aria-label="Tech stack">
-        <li>Python</li><li>FastAPI</li><li>PostgreSQL</li><li>SQLAlchemy</li><li>AES-256-GCM</li><li>Reed–Solomon</li><li>Docker</li><li>GitHub Actions</li>
-      </ul>
-      <a href="https://github.com/PRAJINRAJ-RANAWAT/DriveMesh">GitHub</a>
+  <!-- 10 · footer -->
+  <footer class="site-footer dark">
+    <div class="wrap footer-grid">
+      <div>
+        <a class="brand" href="/">{% include "_logo.html" %}DriveMesh</a>
+        <p class="muted small">Encrypted, replicated storage across the accounts you own. Not affiliated with Google.</p>
+      </div>
+      <div>
+        <p class="label muted">Project</p>
+        <ul class="footer-links">
+          <li><a href="https://github.com/PRAJINRAJ-RANAWAT/DriveMesh">GitHub</a></li>
+          <li><a href="https://github.com/PRAJINRAJ-RANAWAT/DriveMesh/tree/main/docs/design">Design docs</a></li>
+          <li><a href="https://github.com/PRAJINRAJ-RANAWAT/DriveMesh/blob/main/docs/design/results.md">Measured results</a></li>
+        </ul>
+      </div>
+      <div>
+        <p class="label muted">Built with</p>
+        <ul class="stack"><li>Python</li><li>FastAPI</li><li>PostgreSQL</li><li>SQLAlchemy</li><li>AES-256-GCM</li><li>Reed–Solomon</li><li>Docker</li><li>GitHub Actions</li></ul>
+      </div>
     </div>
+    <div class="wrap footer-bottom small muted"><p>Built by Prajin · <a href="/login">Sign in</a></p></div>
   </footer>
-  <script src="/static/landing.js" defer></script>
+  <script src="/static/js/landing.js" defer></script>
 </body>
 </html>

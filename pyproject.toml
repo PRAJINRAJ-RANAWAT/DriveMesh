@@ -47,7 +47,7 @@ drivemesh = "drivemesh.cli:main"
 include = ["drivemesh*"]
 
 [tool.setuptools.package-data]
-drivemesh = ["web/templates/*.html", "web/static/*", "web/static/fonts/*", "migrations/*.ini", "migrations/*.py", "migrations/versions/*.py"]
+drivemesh = ["web/templates/*.html", "web/static/*", "web/static/fonts/*", "web/static/css/*", "web/static/js/*", "migrations/*.ini", "migrations/*.py", "migrations/versions/*.py"]
 
 [tool.ruff]
 line-length = 100

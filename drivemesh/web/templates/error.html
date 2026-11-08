@@ -1,19 +1,17 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+{% include "_head.html" %}
   <title>Something went wrong · DriveMesh</title>
-  <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/css/app.css">
 </head>
 <body>
   <main class="auth-main full">
-    <div class="panel error-card">
+    <div class="card error-card">
       <a class="brand" href="/">{% include "_logo.html" %}DriveMesh</a>
       <h1>Something went wrong</h1>
-      <p class="error">{{ message }}</p>
-      <a class="btn btn-primary" href="/app">Back to your files</a>
+      <p class="form-error" role="alert">{{ message }}</p>
+      <a class="btn btn-primary" href="/accounts">Back to accounts <span class="arrow" aria-hidden="true">→</span></a>
     </div>
   </main>
 </body>

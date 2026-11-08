@@ -1,0 +1,41 @@
+{% extends "_app.html" %}
+{% block title %}Files{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <p class="eyebrow">Files</p>
+    <h1>Browse your mesh</h1>
+  </div>
+  <div class="page-actions">
+    <button id="new-folder" class="btn">New folder</button>
+    <button id="upload-btn" class="btn btn-primary">Upload <span class="arrow" aria-hidden="true">↑</span></button>
+    <input id="file-input" class="sr-only" type="file" multiple tabindex="-1" aria-label="Choose files to upload">
+  </div>
+</header>
+
+<div class="files-layout">
+  <nav class="card tree-card" aria-label="Folders">
+    <p class="label muted">Folders</p>
+    <ul id="tree" class="tree"></ul>
+  </nav>
+
+  <section class="card files-card" aria-labelledby="crumbs-title">
+    <h2 id="crumbs-title" class="sr-only">Current folder</h2>
+    <nav id="crumbs" class="crumbs" aria-label="Folder path"></nav>
+    <div id="dropzone" class="dropzone" tabindex="0" role="button" aria-describedby="dz-help">
+      <svg viewBox="0 0 48 48" aria-hidden="true"><path d="M24 32V12M15 21l9-9 9 9M8 34v4a2 2 0 0 0 2 2h28a2 2 0 0 0 2-2v-4"/></svg>
+      <span><b>Drop files here</b> or press Enter to choose</span>
+      <span id="dz-help" class="small muted">Each file is split into chunks, encrypted, and copied to two accounts.</span>
+    </div>
+    <div id="uploads" class="uploads" aria-live="polite"></div>
+    <div class="table-wrap">
+      <table class="files" id="file-table">
+        <thead><tr><th scope="col">Name</th><th scope="col">Size</th><th scope="col" class="col-health">Replicas</th><th scope="col" class="col-mod">Modified</th><th scope="col"><span class="sr-only">Actions</span></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+    </div>
+    <div id="empty" class="empty hidden"></div>
+  </section>
+</div>
+{% endblock %}
+{% block scripts %}<script src="/static/js/files.js"></script>{% endblock %}

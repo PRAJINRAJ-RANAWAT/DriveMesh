@@ -124,4 +124,4 @@ def callback_google(
     except Exception:
         log.exception("post-link health check failed")
     log.info("google account linked", extra={"account_id": acc.id})
-    return RedirectResponse("/app?linked=1", status_code=303)
+    return RedirectResponse("/accounts?linked=1", status_code=303)

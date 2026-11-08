@@ -1,0 +1,41 @@
+{% extends "_app.html" %}
+{% block title %}Accounts{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <p class="eyebrow">Accounts</p>
+    <h1>Linked storage accounts</h1>
+    <p class="muted">Every chunk is stored on two different accounts. Link at least two; more accounts mean more space and faster transfers.</p>
+  </div>
+</header>
+
+<section class="account-grid" aria-label="Linked accounts">
+  <div id="account-cards" class="account-cards"></div>
+  <article class="card link-card">
+    <h2>Link another account</h2>
+    <p class="muted small">DriveMesh asks only for permission to manage files it creates. Your other Drive files stay invisible to it.</p>
+    <a id="link-google" class="btn btn-primary hidden" href="/accounts/link/google">Link a Google Drive account <span class="arrow" aria-hidden="true">→</span></a>
+    <p id="google-off" class="small muted hidden">Google linking isn't configured on this server yet (see MANUAL_STEPS §2).</p>
+    <form id="local-form" class="local-form hidden">
+      <p class="label muted">Development: local folder</p>
+      <label class="field"><span>Folder path</span><input name="path" placeholder="/path/to/folder" required></label>
+      <label class="field"><span>Name (optional)</span><input name="name" placeholder="external-disk"></label>
+      <button type="submit" class="btn btn-sm">Add folder</button>
+    </form>
+  </article>
+</section>
+
+<dialog id="unlink-dialog" aria-labelledby="unlink-title">
+  <form method="dialog" class="dialog-body">
+    <p class="eyebrow">Unlink account</p>
+    <h2 id="unlink-title">Unlink <span id="unlink-name"></span>?</h2>
+    <p>DriveMesh will first <b>copy every chunk stored on this account to your other accounts</b> (evacuation), then remove its copies and forget the account. Nothing is lost, but it can take a while for large accounts.</p>
+    <p class="muted small">If your remaining accounts can't hold two copies of every chunk, unlinking is refused.</p>
+    <div class="dialog-actions">
+      <button value="cancel" class="btn">Keep account</button>
+      <button value="confirm" class="btn btn-primary" id="unlink-confirm">Evacuate &amp; unlink</button>
+    </div>
+  </form>
+</dialog>
+{% endblock %}
+{% block scripts %}<script src="/static/js/accounts.js"></script>{% endblock %}

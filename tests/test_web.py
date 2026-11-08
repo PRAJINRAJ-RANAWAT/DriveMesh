@@ -33,11 +33,31 @@ def authed(client, user, accounts):
     return client
 
 
-def test_pages_redirect_to_login(client):
-    for path in ("/app", "/status"):
+APP_PAGES = ("/app", "/files", "/accounts", "/status")
+
+
+def test_logged_in_pages_require_auth(client):
+    for path in APP_PAGES:
         r = client.get(path, follow_redirects=False)
-        assert r.status_code == 303 and r.headers["location"] == "/login"
+        assert r.status_code == 303 and r.headers["location"] == "/login", path
     assert client.get("/login").status_code == 200
+
+
+def test_login_page_renders(client):
+    r = client.get("/login")
+    assert r.status_code == 200
+    html = r.text
+    assert 'id="login-form"' in html and 'name="password"' in html and 'role="alert"' in html
+    assert "/static/js/login.js" in html
+
+
+def test_app_pages_render_when_signed_in(client, user):
+    login(client)
+    for path in APP_PAGES:
+        r = client.get(path)
+        assert r.status_code == 200, path
+        assert 'aria-current="page"' in r.text  # sidebar marks the active page
+        assert "/static/css/tokens.css" in r.text
 
 
 def test_landing_page_renders_for_visitors(client):
@@ -47,37 +67,75 @@ def test_landing_page_renders_for_visitors(client):
     assert r.status_code == 200
     html = r.text
     assert "Five Google accounts." in html and "One giant drive." in html
-    assert re.search(r'<a class="btn btn-primary btn-lg" href="/login">Start meshing</a>', html)
-    assert "What if an account dies?" in html and "How it works" in html
-    assert '0</div><div class="stat-label">files lost' in html  # real number (results.md R-008)
+    assert re.search(r'href="/login">Start meshing', html)
+    for section in (
+        'id="how"',
+        'id="durability"',
+        'id="security"',
+        'id="architecture"',
+        'class="cta-band"',
+    ):
+        assert section in html, section
+    assert "What happens if an account dies?" in html and "Built by Prajin" in html
     # strict-CSP friendly: no inline scripts, no inline style attributes, no third-party assets
     assert not re.search(r"<script(?![^>]*\bsrc=)", html)
     assert "style=" not in html
     assert not re.search(r'(?:src|href)="https?://(?!github\.com/PRAJINRAJ-RANAWAT)', html)
     assert "script-src 'self'" in r.headers["content-security-policy"]
+    # original artwork only: no Google logo assets
+    assert "google-drive" not in html.lower() and ".png" not in html
 
 
 def test_landing_cta_points_to_app_when_signed_in(client, user):
     login(client)
     html = client.get("/").text
-    assert 'href="/app">Start meshing' in html and "Open DriveMesh" in html
+    assert 'href="/app">Start meshing' in html and ">Dashboard<" in html
     r = client.get("/login", follow_redirects=False)
     assert r.status_code == 303 and r.headers["location"] == "/app"
-    assert client.get("/app").status_code == 200
 
 
-def test_landing_stats_come_from_results():
+def test_landing_numbers_match_results():
+    """Every number on the landing page must be backed by docs/design/results.md."""
     from pathlib import Path
+
+    from drivemesh.web import facts
 
     results = Path("docs/design/results.md").read_text()
     assert "Total: 70 trials, 0 files lost" in results
-    assert "AES-256-GCM" in Path("docs/design/04-decisions.md").read_text()
+    assert f"**{facts.TEST_COUNT} tests**" in results and f"**{facts.COVERAGE}**" in results
+    assert (
+        "RS(4,2) | 100,663,680 | 1.5000\u00d7" in results
+        and "RF=2 | 134,218,240 | 2.0000\u00d7" in results
+    )
 
 
 def test_static_assets_are_cacheable_pages_are_not(client):
-    assert client.get("/static/style.css").headers["cache-control"].startswith("public")
-    assert client.get("/static/fonts/inter-latin.woff2").status_code == 200
+    for asset in ("/static/css/tokens.css", "/static/css/landing.css", "/static/js/landing.js"):
+        r = client.get(asset)
+        assert r.status_code == 200 and r.headers["cache-control"].startswith("public"), asset
+    assert client.get("/static/fonts/jetbrains-mono-latin.woff2").status_code == 200
     assert client.get("/login").headers["cache-control"] == "no-store"
+
+
+def test_fs_listing_reports_replica_health(authed, dm, accounts):
+    authed.put("/api/v1/files/content?path=/h.bin", content=payload(2 * CHUNK))
+    files = authed.get("/api/v1/fs?path=/").json()["files"]
+    assert files[0]["health"] == "healthy"
+    from drivemesh.backends.local import MemoryBackend
+
+    for be in MemoryBackend._instances.values():  # lose every copy on one account
+        be.objects.clear()
+        break
+    from drivemesh.core.fsck import fsck
+
+    authed.get("/api/v1/files/content?path=/h.bin")  # reads mark missing replicas
+    state = authed.get("/api/v1/fs?path=/").json()["files"][0]["health"]
+    assert state in ("healthy", "under_replicated")
+    assert fsck(dm).files == 1
+    me = authed.get("/api/v1/auth/me").json()
+    assert me["chunk_size"] == CHUNK
+    cap = authed.get("/api/v1/cluster/status").json()["capacity"]
+    assert set(cap) == {"total_bytes", "used_bytes", "free_bytes"}
 
 
 def test_security_headers(client):
