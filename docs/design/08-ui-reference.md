@@ -18,7 +18,7 @@
 ### What makes it feel premium (measured)
 | Aspect | Observation (computed values) | What DriveMesh borrows (the idea, not the asset) |
 |---|---|---|
-| Typography contrast | Condensed display face for headlines (H1 ≈ 89 px, line-height ≈ 0.88, tracking ≈ −0.02 em); monospace for 253 of ~380 text nodes (10–13 px, uppercase, tracking ≈ +1.8 px) | Large, tight Space Grotesk headlines (−0.035 em) against tiny uppercase **mono micro-labels** for eyebrows, buttons, data and nav |
+| Typography contrast | Condensed display face for headlines (H1 ≈ 89 px, line-height ≈ 0.88, tracking ≈ −0.02 em); monospace for 253 of ~380 text nodes (10–13 px, uppercase, tracking ≈ +1.8 px) | Large, tight Geist headlines (−0.045 em) against tiny uppercase **mono micro-labels** for eyebrows, buttons, data and nav |
 | Two-tone headline | Last line of a headline in the accent colour | Accent used on the punchline line, never body copy |
 | Hairline structure | `1px solid` at 8–17 % white everywhere; card radius mostly 16 px, 12 px, 8 px | 1 px hairlines at 12 % ink; 16 px cards, 6 px buttons |
 | Depth | Soft large shadows (`0 8px 32px rgba(0,0,0,.35)`), radial glows, an SVG-noise texture, faint grid lines, edge vignettes | Faint grid and a radial accent glow behind the hero; soft shadows on cards. No noise texture (it costs paint time) |
@@ -51,11 +51,11 @@ decoration (underlines, glows, packets). Orange headlines and stats live on char
 ### Type
 | Token | Value |
 |---|---|
-| `--font-display` | Space Grotesk 500–700 (self-hosted, latin subset, `font-display: swap`) |
-| `--font-body` | Inter 400–700 |
-| `--font-mono` | JetBrains Mono 400–600: labels, buttons, data |
+| `--font-display` | Geist, variable 100–900, headings at `--fw-display: 600` (self-hosted latin subset, `font-display: swap`) |
+| `--font-body` | Geist |
+| `--font-mono` | Geist Mono: labels, buttons, data |
 | Scale | `--fs-display` clamp(3rem, 8.4vw, 7rem) · `--fs-h1` clamp(2.4rem, 5.5vw, 4.5rem) · `--fs-h2` clamp(2rem, 4vw, 3.25rem) · `--fs-h3` 1.375rem · `--fs-lead` 1.2rem · `--fs-body` 1rem · `--fs-small` .875rem · `--fs-micro` .72rem |
-| Tracking | `--tracking-tight` −0.035em (display) · `--tracking-label` .16em (mono labels) |
+| Tracking | `--tracking-tight` −0.045em (display) · `--tracking-label` .14em (mono labels) |
 
 ### Space, radius, depth, motion
 - **Spacing** (4 px base): `--space-1` 4 · `-2` 8 · `-3` 12 · `-4` 16 · `-5` 24 · `-6` 32 · `-7` 48 · `-8` 64 · `-9` 96 · `-10` 128.
