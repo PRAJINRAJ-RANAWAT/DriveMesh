@@ -95,7 +95,11 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("X-Content-Type-Options", "nosniff")
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("X-Frame-Options", "DENY")
-        response.headers.setdefault("Cache-Control", "no-store")
+        if request.url.path.startswith("/static/"):
+            # fonts/CSS/JS are public and versioned with the app; cache them for a day
+            response.headers["Cache-Control"] = "public, max-age=86400"
+        else:
+            response.headers.setdefault("Cache-Control", "no-store")
         if self.hsts:
             response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Server-Timing"] = f"app;dur={(time.perf_counter() - t0) * 1000:.1f}"
