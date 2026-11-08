@@ -3,7 +3,17 @@
 
 const $ = (id) => document.getElementById(id);
 
-function row(...cells) { return DM.el("tr", {}, ...cells.map((c) => DM.el("td", { text: String(c ?? "–") }))); }
+function row(...cells) {
+  return DM.el("tr", {}, ...cells.map((c) => DM.el("td", { text: String(c ?? "—") })));
+}
+
+function bar(fraction) {
+  const outer = DM.el("div", { class: "bar" + (fraction > 0.85 ? " high" : "") });
+  const inner = DM.el("span");
+  inner.style.width = (Math.min(1, fraction) * 100).toFixed(1) + "%";
+  outer.append(inner);
+  return outer;
+}
 
 async function refresh() {
   let s;
@@ -13,27 +23,31 @@ async function refresh() {
   sm.textContent = s.safe_mode.active ? `Safe mode: ${s.safe_mode.reason}. Writes, repair and GC are paused.` : "";
   $("t-ok").textContent = s.replicas.ok || 0;
   $("t-under").textContent = s.under_replicated_chunks;
+  $("t-under").classList.toggle("bad", s.under_replicated_chunks > 0);
   $("t-unavail").textContent = s.unavailable_chunks;
   $("t-unavail").classList.toggle("bad", s.unavailable_chunks > 0);
-  $("t-jobs").textContent = (s.jobs.queued || 0) + (s.jobs.running || 0);
   $("t-backup").textContent = s.last_backup_at ? DM.when(s.last_backup_at + "Z") : "never";
 
   const cards = $("account-cards");
   cards.replaceChildren();
+  if (!s.accounts.length) cards.append(DM.el("p", { class: "muted", text: "No accounts linked yet." }));
   for (const a of s.accounts) {
-    const pct = a.capacity_bytes ? Math.round(100 * (a.used_bytes || 0) / a.capacity_bytes) : 0;
-    cards.append(DM.el("div", { class: "card" },
+    const frac = a.capacity_bytes ? (a.used_bytes || 0) / a.capacity_bytes : 0;
+    cards.append(DM.el("div", { class: "account" },
       DM.el("div", { class: "acc-head" },
-        DM.el("span", { class: "badge " + a.state, text: a.state }),
-        DM.el("strong", { text: a.email || a.name })),
-      DM.el("meter", { min: "0", max: "100", value: String(pct) }),
-      DM.el("div", { class: "small muted", text: `${a.provider} · ${a.replicas} replicas · ${DM.size(a.free_bytes)} free` }),
-      DM.el("div", { class: "small muted", text: "last check: " + (a.last_health_at ? DM.when(a.last_health_at + "Z") : "never") }),
-      a.last_error ? DM.el("div", { class: "small error", text: a.last_error }) : ""));
+        DM.el("span", { class: "acc-name", text: a.email || a.name }),
+        DM.el("span", { class: "badge " + a.state, text: a.state })),
+      bar(frac),
+      DM.el("div", { class: "acc-meta", text: `${a.provider} · ${a.replicas} chunk copies · ${DM.size(a.free_bytes)} free` }),
+      DM.el("div", { class: "acc-meta", text: "last check: " + (a.last_health_at ? DM.when(a.last_health_at + "Z") : "never") }),
+      a.last_error ? DM.el("div", { class: "acc-meta error", text: a.last_error }) : ""));
   }
-  $("replica-states").replaceChildren(...Object.entries(s.replicas).map(([k, v]) => row(k, v)));
+  const states = Object.entries(s.replicas);
+  $("replica-states").replaceChildren(...(states.length ? states.map(([k, v]) => row(k, v)) : [row("none yet", "")]));
+  const jobs = Object.entries(s.jobs);
+  $("jobs").replaceChildren(...(jobs.length ? jobs.map(([k, v]) => row(k, v)) : [row("none", "")]));
   $("dead-jobs").replaceChildren(...(s.dead_jobs.length ? s.dead_jobs.map((j) => row(j.kind, j.error)) : [row("none", "")]));
-  $("events").replaceChildren(...s.recent_events.map((e) => row(DM.when(e.ts + "Z"), e.level, e.kind, e.account_id || e.file_id || "")));
+  $("events").replaceChildren(...s.recent_events.map((e) => row(DM.when(e.ts + "Z"), e.level, e.kind)));
   $("updated").textContent = "updated " + new Date().toLocaleTimeString();
 }
 

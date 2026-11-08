@@ -518,6 +518,16 @@ def cluster_status(dm: DriveMesh, user_id: str | None = None) -> dict[str, Any]:
         if user_id:
             aq = aq.where(LinkedAccount.user_id == user_id)
         accounts = list(s.scalars(aq))
+        acc_ids = [a.id for a in accounts]
+        stored_bytes = (
+            s.scalar(
+                select(func.coalesce(func.sum(Replica.size), 0)).where(
+                    Replica.state == "ok", Replica.account_id.in_(acc_ids)
+                )
+            )
+            if acc_ids
+            else 0
+        )
         per_acc = dict(
             s.execute(
                 select(Replica.account_id, func.count())
@@ -566,6 +576,7 @@ def cluster_status(dm: DriveMesh, user_id: str | None = None) -> dict[str, Any]:
             for a in accounts
         ],
         "replicas": rstates,
+        "stored_bytes": int(stored_bytes or 0),  # all copies, incl. replication overhead
         "files": fstates,
         "under_replicated_chunks": len(ur),
         "unavailable_chunks": sum(1 for _, f, h in ur if h < (f.ec_k or 1)),
