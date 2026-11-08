@@ -1,0 +1,41 @@
+# Render Blueprint (https://render.com/docs/blueprint-spec). Free web service + external Neon Postgres.
+# Values marked `sync: false` are secrets you paste in the Render dashboard (see MANUAL_STEPS.md).
+services:
+  - type: web
+    name: drivemesh
+    runtime: docker
+    plan: free
+    region: oregon
+    healthCheckPath: /healthz
+    autoDeploy: false
+    envVars:
+      - key: DRIVEMESH_ENV
+        value: prod
+      - key: DRIVEMESH_DATABASE_URL
+        sync: false # Neon connection string (postgresql://...?sslmode=require)
+      - key: DRIVEMESH_MASTER_KEYS
+        sync: false # output of `drivemesh gen-key`; keep an offline copy
+      - key: DRIVEMESH_ACTIVE_KEY_ID
+        value: k1
+      - key: DRIVEMESH_SESSION_SECRET
+        generateValue: true
+      - key: DRIVEMESH_METRICS_TOKEN
+        generateValue: true
+      - key: DRIVEMESH_SECURE_COOKIES
+        value: "true"
+      - key: DRIVEMESH_ALLOW_LOCAL_BACKENDS
+        value: "false"
+      - key: DRIVEMESH_PUBLIC_BASE_URL
+        sync: false # https://<your-service>.onrender.com
+      - key: DRIVEMESH_GOOGLE_CLIENT_ID
+        sync: false
+      - key: DRIVEMESH_GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: DRIVEMESH_OWNER_USERNAME
+        sync: false
+      - key: DRIVEMESH_OWNER_PASSWORD
+        sync: false
+      - key: DRIVEMESH_MAX_UPLOAD_BYTES
+        value: "2147483648"
+      - key: DRIVEMESH_DEFAULT_RF
+        value: "2"
