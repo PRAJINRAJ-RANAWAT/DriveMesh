@@ -1,0 +1,74 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "drivemesh"
+version = "0.1.0"
+description = "Fault-tolerant, encrypted storage layer that pools multiple cloud storage accounts"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi==0.162.2",
+  "starlette==1.10.0",
+  "uvicorn==0.54.0",
+  "SQLAlchemy==2.1.8",
+  "alembic==1.20.1",
+  "pydantic==2.14.3",
+  "pydantic-settings==2.16.2",
+  "cryptography==50.0.2",
+  "Jinja2==3.1.6",
+  "itsdangerous==2.2.0",
+  "prometheus_client==0.26.0",
+  "google-api-python-client==2.201.0",
+  "google-auth==2.62.1",
+  "google-auth-oauthlib==1.5.0",
+  "google-auth-httplib2==0.4.4",
+]
+
+[project.optional-dependencies]
+pg = ["psycopg[binary]==3.3.8"]
+s3 = ["boto3==1.43.126"]
+ec = ["zfec==1.6.0.0"]
+dev = [
+  "pytest==9.2.0",
+  "pytest-cov==7.1.0",
+  "ruff==0.17.4",
+  "httpx==0.28.1",
+  "moto[s3]==5.2.5",
+  "boto3==1.43.126",
+  "zfec==1.6.0.0",
+]
+
+[project.scripts]
+drivemesh = "drivemesh.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["drivemesh*"]
+
+[tool.setuptools.package-data]
+drivemesh = ["web/templates/*.html", "web/static/*", "migrations/*.ini", "migrations/*.py", "migrations/versions/*.py"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = ["legacy"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+ignore = ["RUF012"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["B011"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"
+markers = [
+  "slow: long-running tests (chaos, benchmarks)",
+]
+filterwarnings = ["ignore::DeprecationWarning:google.*"]
+
+[tool.coverage.run]
+source = ["drivemesh"]
+omit = ["drivemesh/migrations/*"]

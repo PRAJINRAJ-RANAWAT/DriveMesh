@@ -10,3 +10,14 @@ temp_downloads/
 .env
 .env.*
 .claude/settings.local.json
+.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+*.egg-info/
+build/
+dist/
+data/
+bench/out/
