@@ -83,6 +83,25 @@ class Settings(BaseSettings):
     log_level: str = "INFO"
     log_json: bool = True
 
+    def production_problems(self) -> list[str]:
+        """Settings that are unsafe for an internet-facing deployment."""
+        problems = []
+        if self.session_secret is None or len(self.session_secret.get_secret_value()) < 32:
+            problems.append("DRIVEMESH_SESSION_SECRET must be set (>= 32 chars)")
+        if self.master_keys is None:
+            problems.append("DRIVEMESH_MASTER_KEYS must be set")
+        if not self.secure_cookies:
+            problems.append("DRIVEMESH_SECURE_COOKIES must be true (HTTPS only)")
+        if self.allow_local_backends:
+            problems.append(
+                "DRIVEMESH_ALLOW_LOCAL_BACKENDS must be false (server filesystem access)"
+            )
+        if not self.public_base_url.startswith("https://"):
+            problems.append("DRIVEMESH_PUBLIC_BASE_URL must be https://")
+        if self.database_url.startswith("sqlite"):
+            problems.append("use Postgres in production (container disks are ephemeral)")
+        return problems
+
     def write_quorum(self, rf: int) -> int:
         """Replicas that must succeed before a chunk counts as written (default: all)."""
         return min(rf, self.min_write_replicas or rf)

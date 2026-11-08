@@ -62,9 +62,9 @@ def create_app(
             migrate.upgrade(settings.database_url)
         dm = DriveMesh(settings)
     st = dm.settings
+    if st.env == "prod" and (problems := st.production_problems()):
+        raise RuntimeError("unsafe production configuration: " + "; ".join(problems))
     if st.session_secret is None:
-        if st.env == "prod":
-            raise RuntimeError("DRIVEMESH_SESSION_SECRET must be set in production")
         session_secret = secrets.token_urlsafe(48)
         log.warning(
             "no DRIVEMESH_SESSION_SECRET: using an ephemeral one (sessions reset on restart)"
@@ -101,7 +101,7 @@ def create_app(
     )
     app.state.dm = dm
     app.state.login_throttle = LoginThrottle(st.login_rate_per_minute)
-    app.add_middleware(RequestContextMiddleware)
+    app.add_middleware(RequestContextMiddleware, hsts=st.secure_cookies)
     app.add_middleware(
         SessionMiddleware,
         secret_key=session_secret,

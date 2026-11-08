@@ -78,6 +78,10 @@ class LoginThrottle:
 
 
 class RequestContextMiddleware(BaseHTTPMiddleware):
+    def __init__(self, app, hsts: bool = False):
+        super().__init__(app)
+        self.hsts = hsts
+
     async def dispatch(self, request: Request, call_next):
         rid = request.headers.get("x-request-id") or uuid.uuid4().hex[:16]
         token = request_id_var.set(rid)
@@ -92,5 +96,7 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
         response.headers.setdefault("Referrer-Policy", "no-referrer")
         response.headers.setdefault("X-Frame-Options", "DENY")
         response.headers.setdefault("Cache-Control", "no-store")
+        if self.hsts:
+            response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
         response.headers["Server-Timing"] = f"app;dur={(time.perf_counter() - t0) * 1000:.1f}"
         return response

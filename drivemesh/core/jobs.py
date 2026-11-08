@@ -136,7 +136,7 @@ class JobQueue:
                 )
             else:
                 j.state = "queued"
-                backoff = min(300.0, 2.0**j.attempts) * random.uniform(0.5, 1.0)
+                backoff = min(300.0, 2.0**j.attempts) * random.uniform(0.5, 1.0)  # noqa: S311 - jitter
                 j.run_after = now + timedelta(seconds=backoff)
 
     def run_once(self, kinds: tuple[str, ...] | None = None) -> bool:
