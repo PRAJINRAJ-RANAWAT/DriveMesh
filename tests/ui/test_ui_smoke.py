@@ -119,9 +119,17 @@ def test_landing_page(browser, base_url, size, theme):
         "(() => { const s = document.getElementById('story');"
         " return s.offsetTop + s.offsetHeight - innerHeight; })()"
     )
-    page.evaluate(f"window.scrollTo(0, {story_end})")
-    time.sleep(0.3)
-    assert page.get_attribute("[data-story]", "data-phase") == "3"
+    # Wait for the scroll-driven scene to settle. Poll from Python: the page's CSP forbids the
+    # eval that Playwright's wait_for_function needs. Nudge the scroll so a frame is scheduled.
+    phase = None
+    for i in range(60):
+        page.evaluate(f"window.scrollTo(0, {story_end - (i % 2)})")
+        page.mouse.wheel(0, 1)
+        time.sleep(0.1)
+        phase = page.get_attribute("[data-story]", "data-phase")
+        if phase == "3":
+            break
+    assert phase == "3"
     assert overflow(page) == 0, "horizontal overflow"
     page.evaluate("window.scrollTo(0, 0)")
     time.sleep(0.2)
