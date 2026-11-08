@@ -3,7 +3,7 @@
 <head>
 {% include "_head.html" %}
   <title>{% block title %}DriveMesh{% endblock %} · DriveMesh</title>
-  <link rel="stylesheet" href="/static/css/app.css">
+  <link rel="stylesheet" href="{{ asset('css/app.css') }}">
 </head>
 <body class="app-body">
   <a class="skip" href="#content">Skip to content</a>
@@ -21,6 +21,7 @@
     </nav>
     <div class="side-foot">
       <span id="who" class="label muted"></span>
+      {% include "_theme_toggle.html" %}
       <button id="logout" class="btn btn-sm">Sign out</button>
     </div>
   </aside>
@@ -28,7 +29,7 @@
     {% block content %}{% endblock %}
   </main>
   <p id="toast" class="toast hidden" role="status" aria-live="polite"></p>
-  <script src="/static/js/common.js"></script>
+  <script src="{{ asset('js/common.js') }}"></script>
   {% block scripts %}{% endblock %}
 </body>
 </html>

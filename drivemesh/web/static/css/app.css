@@ -202,3 +202,4 @@ table.kv { width: 100%; border-collapse: collapse; }
   .auth-brand { display: inline-flex; }
 }
 @media (prefers-reduced-motion: reduce) { .am-p { animation: none; } }
+.auth-foot { display: flex; align-items: center; justify-content: space-between; gap: var(--space-4); }
