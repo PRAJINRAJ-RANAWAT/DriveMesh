@@ -454,3 +454,46 @@ def test_oauth_not_configured(client, user, dm):
     login(client)
     r = client.get("/accounts/link/google")
     assert r.status_code == 503
+
+
+def test_upload_progress_reports_stored_chunks(authed, app):
+    seen = []
+    original = app.state.upload_progress.__class__.__setitem__
+
+    class Spy(dict):
+        def __setitem__(self, k, v):
+            seen.append(v)
+            original(self, k, v)
+
+    app.state.upload_progress = Spy()
+    r = authed.put(
+        "/api/v1/files/content?path=/p.bin",
+        content=payload(3 * CHUNK + 1),
+        headers={"X-Upload-Id": "test-upload-0001"},
+    )
+    assert r.status_code == 201
+    assert seen and sorted(seen[0]) == [0, 1, 2, 3]  # every chunk reported as stored
+    assert app.state.upload_progress == {}  # cleaned up after the request
+    assert authed.get("/api/v1/uploads/test-upload-0001").status_code == 404
+
+
+def test_static_assets_are_fingerprinted_and_compressed(client):
+    import re
+
+    html = client.get("/").text
+    m = re.search(r'href="(/static/css/tokens\.css\?v=[0-9a-f]{10})"', html)
+    assert m, "templates must emit content-hashed asset URLs"
+    r = client.get(m.group(1), headers={"Accept-Encoding": "gzip"})
+    assert r.headers["cache-control"] == "public, max-age=31536000, immutable"
+    assert r.headers.get("content-encoding") == "gzip"
+    page = client.get("/", headers={"Accept-Encoding": "gzip"})
+    assert (
+        page.headers.get("content-encoding") == "gzip"
+        and page.headers["cache-control"] == "no-store"
+    )
+
+
+def test_file_downloads_are_never_gzipped(authed):
+    authed.put("/api/v1/files/content?path=/z.bin", content=b"a" * 50_000)
+    r = authed.get("/api/v1/files/content?path=/z.bin", headers={"Accept-Encoding": "gzip"})
+    assert "content-encoding" not in r.headers and r.headers["content-length"] == "50000"
