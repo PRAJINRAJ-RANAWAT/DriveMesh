@@ -577,6 +577,11 @@ def cluster_status(dm: DriveMesh, user_id: str | None = None) -> dict[str, Any]:
         ],
         "replicas": rstates,
         "stored_bytes": int(stored_bytes or 0),  # all copies, incl. replication overhead
+        "capacity": {
+            "total_bytes": sum(a.capacity_bytes or 0 for a in accounts),
+            "used_bytes": sum(a.used_bytes or 0 for a in accounts),
+            "free_bytes": sum(a.free_bytes or 0 for a in accounts),
+        },
         "files": fstates,
         "under_replicated_chunks": len(ur),
         "unavailable_chunks": sum(1 for _, f, h in ur if h < (f.ec_k or 1)),
