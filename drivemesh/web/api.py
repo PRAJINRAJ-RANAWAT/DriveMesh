@@ -200,6 +200,33 @@ async def upload(
         kwargs.update(scheme="ec", ec_k=int(m.group(1)), ec_m=int(m.group(2)))
     elif rf is not None:
         kwargs["rf"] = rf
+    progress_key = None
+    upload_id = request.headers.get("x-upload-id", "")
+    if _UPLOAD_ID.fullmatch(upload_id):
+        progress_key = (user.id, upload_id)
+        stored: set[int] = set()
+        request.app.state.upload_progress[progress_key] = stored
+        kwargs["on_chunk_stored"] = stored.add
+    try:
+        return await _stream_upload(request, dm, user, path, kwargs)
+    finally:
+        if progress_key is not None:
+            request.app.state.upload_progress.pop(progress_key, None)
+
+
+_UPLOAD_ID = re.compile(r"[A-Za-z0-9-]{8,64}")
+
+
+@router.get("/uploads/{upload_id}")
+def upload_progress(upload_id: str, request: Request, user: User = Depends(require_csrf)):
+    """Chunk indices already encrypted and stored on their accounts for an in-flight upload."""
+    stored = request.app.state.upload_progress.get((user.id, upload_id))
+    if stored is None:
+        raise NotFound("no upload in progress with this id")
+    return {"stored_chunks": sorted(stored)}
+
+
+async def _stream_upload(request: Request, dm, user: User, path: str, kwargs: dict[str, Any]):
     writer = await run_in_threadpool(dm.open_writer, user.id, path, **kwargs)
     buf = bytearray()
     try:

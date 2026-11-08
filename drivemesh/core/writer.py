@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import threading
+from collections.abc import Callable
 from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 from datetime import timedelta
@@ -66,8 +67,10 @@ class FileWriter:
         scheme: str = "replica",
         ec_k: int | None = None,
         ec_m: int | None = None,
+        on_chunk_stored: Callable[[int], None] | None = None,
     ):
         self.dm = dm
+        self.on_chunk_stored = on_chunk_stored
         st = dm.settings
         self.user_id = user_id
         self.path = ns.normalize(path)
@@ -237,6 +240,7 @@ class FileWriter:
                 if not res.placed:
                     raise InsufficientAccounts(f"could not place shard {shard_idx} of chunk {idx}")
                 placed_accounts.add(res.placed[0][1])
+            self._notify(idx)
             return
         ranked = placement.rank(
             chunk_id,
@@ -253,6 +257,14 @@ class FileWriter:
                 f"chunk {idx}: stored {len(res.placed)}/{self.rf} replicas "
                 f"(quorum {self.quorum}); failures: {res.failed_accounts}"
             )
+        self._notify(idx)
+
+    def _notify(self, idx: int) -> None:
+        if self.on_chunk_stored is not None:
+            try:
+                self.on_chunk_stored(idx)
+            except Exception:
+                log.debug("progress callback failed", exc_info=True)
 
     def _bad_snapshot(self) -> set[str]:
         with self._bad_lock:
