@@ -68,3 +68,38 @@ jobs:
           cache: pip
       - run: pip install -e ".[dev,pg]"
       - run: pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_PASSWORD: dmtest
+          POSTGRES_DB: drivemesh
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t drivemesh:ci .
+      - name: Smoke-test the production container against Postgres
+        run: |
+          KEY=$(docker run --rm drivemesh:ci drivemesh gen-key 2>/dev/null)
+          SECRET=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')
+          docker run -d --name dm --network host \
+            -e DRIVEMESH_DATABASE_URL=postgresql://postgres:dmtest@localhost:5432/drivemesh \
+            -e DRIVEMESH_MASTER_KEYS="$KEY" -e DRIVEMESH_SESSION_SECRET="$SECRET" \
+            -e DRIVEMESH_SECURE_COOKIES=true -e DRIVEMESH_ALLOW_LOCAL_BACKENDS=false \
+            -e DRIVEMESH_PUBLIC_BASE_URL=https://ci.example.com \
+            -e DRIVEMESH_OWNER_USERNAME=ci -e DRIVEMESH_OWNER_PASSWORD=ci-password-123 \
+            drivemesh:ci
+          for i in $(seq 1 30); do curl -fs localhost:8000/healthz && break; sleep 2; done
+          curl -fs localhost:8000/healthz
+          for i in $(seq 1 30); do curl -fs localhost:8000/readyz && break; sleep 2; done
+          code=$(curl -s -o /dev/null -w '%{http_code}' -X POST localhost:8000/api/v1/auth/login \
+            -H 'content-type: application/json' -d '{"username":"ci","password":"ci-password-123"}')
+          test "$code" = "200"
+          docker logs dm 2>&1 | tail -20
+          docker inspect --format '{{.Config.User}}' drivemesh:ci | grep -q drivemesh
