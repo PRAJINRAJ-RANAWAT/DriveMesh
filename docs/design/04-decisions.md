@@ -84,7 +84,7 @@ Status is *Accepted* unless noted. An ADR is amended (not rewritten) when measur
 ## ADR-008 Encryption: envelope encryption with AES-256-GCM and AAD binding
 - **Context:** The legacy design uses one Fernet key on disk (W-10, leaked W-00), +33 % overhead (R-001), and no position binding.
 - **Options:** Keep Fernet; AES-GCM with a single key; **per-file DEK wrapped by a KEK, AES-GCM with AAD**; age/libsodium secretstream.
-- **Decision:** Per-file-version random DEK; AES-256-GCM per chunk with AAD `dm1|file_id|version|idx|chunk_count`; DEK wrapped by a KEK from `DRIVEMESH_MASTER_KEYS`
+- **Decision:** Per-file-version random DEK; AES-256-GCM per chunk with AAD `dm1|file_id|version|idx|last` (STREAM-style last-chunk flag, because a streaming upload does not know the chunk count up front); DEK wrapped by a KEK from `DRIVEMESH_MASTER_KEYS`
   (keyring with ids). Tokens and snapshots are encrypted with the KEK under their own AAD.
 - **Consequences:** Rotation = rewrap (cheap). Chunk swap, reorder and truncation are detected. Overhead is 32 B/object. Losing the KEK loses everything (stated plainly).
 - **Managed service wins:** KMS keeps the KEK in an HSM, audits every unwrap, and enables per-request IAM. That is strictly better if budget allows.
