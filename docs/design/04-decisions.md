@@ -178,3 +178,34 @@ Status is *Accepted* unless noted. An ADR is amended (not rewritten) when measur
   CSRF uses a synchronizer token stored in the session and sent as `X-CSRF-Token`. Login attempts are rate-limited per IP.
 - **Consequences:** The schema is multi-user, so adding Google login later is additive.
 - **AWS/GCP:** Cognito / Identity Platform.
+
+---
+
+## Amendments from measurement (Phase 6)
+
+**ADR-005a: placement becomes "HRW + power of two choices" (2026-11-08).**
+- Benchmarks (results.md R-004) showed pure rendezvous hashing balances only over many chunks. Within one transfer some accounts got 2–3× their
+  share and the slowest account bounded throughput.
+- Decision: keep HRW for the *candidate set* (top 2·RF by weighted score, provider-diverse), then pick the least-loaded (in-flight operations) candidates.
+- Result: +39 % mean upload throughput at 8 accounts and min-to-max spread cut from 12 MB/s to 0.7 MB/s.
+- Trade-off: placement is no longer a pure function of (chunk, accounts). It now depends on the load at write time.
+  Tests still pin determinism of `rank()`; `load_aware()` is tested separately. Long-run balance is still governed by HRW weights.
+- Interview angle: the "power of two choices" result (Mitzenmacher). Two random choices cut maximum load exponentially compared with one.
+
+**ADR-009a: chunk size stays 8 MiB (2026-11-08).**
+- Simulated sweep (R-005): uploads hit the bandwidth ceiling from 4 MiB; 1 MiB loses ~15 % to latency; 16 MiB was best for downloads of a 128 MB file.
+- Not changed until the real-Drive sweep (MANUAL_STEPS §4).
+
+**ADR-019: repair runs chunks concurrently (bounded) (2026-11-08).**
+- Serial repair reached 4.3 MB/s on simulated 10 MB/s links (R-006): every chunk paid read latency plus write latency in sequence.
+- Repair now uses `repair_parallelism` (default 8) workers over the fewest-healthy-first queue, with load-aware target selection: 12.7 MB/s,
+  85 % of the link ceiling.
+- Shorter repair = shorter window of vulnerability to a second failure.
+- Managed-service analog: HDFS `dfs.namenode.replication.max-streams`; S3 hides this entirely.
+
+**ADR-020: query shape and indexes are part of the design, verified by plan tests (2026-11-08).**
+- A per-chunk correlated subquery plus SQLite's index choice without statistics made the repair scan quadratic (68 s at 20k chunks, R-007).
+- Decision: a composite `(chunk_id, state)` index (migration 0002) that matches both predicates, fsck as a single grouped pass, and a test that runs
+  `EXPLAIN QUERY PLAN` and fails if the wrong index is chosen.
+- Postgres at 1M chunks: repair scan 5.0 s, fsck 7.9 s (it was 291 s).
+- AWS/GCP: the same lesson applies to DynamoDB key design. Access patterns decide the keys and indexes, not the other way round.
