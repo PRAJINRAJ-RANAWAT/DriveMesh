@@ -135,6 +135,13 @@ def backup_now(dm: DriveMesh, *, snapshot: dict[str, Any] | None = None) -> dict
 
 
 def backup_if_changed(dm: DriveMesh) -> dict[str, Any] | None:
+    with dm.session() as s:
+        if not s.scalar(
+            select(func.count())
+            .select_from(LinkedAccount)
+            .where(LinkedAccount.state.in_(("active", "full")))
+        ):
+            return None  # nowhere to store a snapshot yet
     snap = dump(dm)
     with dm.session() as s:
         last = s.get(KV, "last_backup_hash")

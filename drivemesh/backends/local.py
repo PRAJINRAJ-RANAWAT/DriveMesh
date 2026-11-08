@@ -32,20 +32,27 @@ def _check_name(name: str) -> None:
 class LocalDiskBackend:
     provider = "local"
 
-    def __init__(self, root: str | os.PathLike[str], capacity_bytes: int | None = None):
+    def __init__(
+        self, root: str | os.PathLike[str], capacity_bytes: int | None = None, create: bool = True
+    ):
+        """`create=False` (used for linked accounts) never recreates a vanished root: a deleted
+        account directory must look *lost*, not healthy-and-empty."""
         self.root = Path(root)
         self.capacity_bytes = capacity_bytes
         self._lock = threading.Lock()
-        try:
-            self.root.mkdir(parents=True, exist_ok=True)
-        except OSError as exc:
-            raise TransientError(f"cannot create root {self.root}: {exc}") from exc
+        if create:
+            try:
+                self.root.mkdir(parents=True, exist_ok=True)
+            except OSError as exc:
+                raise TransientError(f"cannot create root {self.root}: {exc}") from exc
 
     def _path(self, name: str) -> Path:
         _check_name(name)
         return self.root / name
 
     def _used(self) -> int:
+        if not self.root.is_dir():
+            raise NotFoundError(f"root {self.root} missing")
         total = 0
         with os.scandir(self.root) as it:
             for entry in it:
@@ -89,6 +96,8 @@ class LocalDiskBackend:
         return name if self._path(name).exists() else None
 
     def list(self, prefix: str = "dm-") -> Iterator[ObjectInfo]:
+        if not self.root.is_dir():
+            raise NotFoundError(f"root {self.root} missing")
         with os.scandir(self.root) as it:
             entries = [e for e in it if e.is_file() and e.name.startswith(prefix)]
         for e in entries:

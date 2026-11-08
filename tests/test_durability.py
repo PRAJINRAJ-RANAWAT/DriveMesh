@@ -161,7 +161,13 @@ def test_c3_corrupted_chunks_detected_and_repaired(dm, user, accounts):
 def test_scrub_respects_budget(dm, user, accounts):
     write_files(dm, user, n=3)
     res = scrub(dm, budget_bytes=CHUNK, limit=1000)
-    assert res["verified"] <= 2  # stops once the byte budget is spent
+    # the budget is checked before each object, so at most one object overshoots it
+    from drivemesh.crypto import CHUNK_OVERHEAD
+
+    assert res["bytes"] <= CHUNK + CHUNK + CHUNK_OVERHEAD
+    with dm.session() as s:
+        total = len(s.scalars(select(Replica)).all())
+    assert res["verified"] < total  # it stopped early instead of scanning everything
 
 
 def test_chunk_with_no_healthy_replica_is_reported(dm, user, accounts, clock):
@@ -333,3 +339,16 @@ def test_rewrap_rotates_master_key(dm, user, accounts):
     with dm.session() as s:
         g = s.scalars(select(LinkedAccount).where(LinkedAccount.provider == "gdrive")).one()
         assert dm.accounts.read_secret(g) == {"refresh_token": "r"}
+
+
+def test_events_with_reserved_log_keys_do_not_crash(dm, user, caplog):
+    """Regression: dm.event(name=...) crashed the backup worker (found by the Docker smoke test)."""
+    import logging
+
+    with caplog.at_level(logging.INFO, logger="drivemesh"):
+        dm.event("metadata_backup", name="dm-meta-x", msg="hello", args=1)
+    assert any(getattr(r, "name_", None) == "dm-meta-x" for r in caplog.records)
+
+
+def test_backup_skipped_without_accounts(dm, user):
+    assert backup.backup_if_changed(dm) is None

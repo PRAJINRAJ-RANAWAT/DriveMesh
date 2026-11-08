@@ -32,6 +32,7 @@ from drivemesh.errors import AlreadyExists, Conflict, NotFound, Unauthorized
 
 log = logging.getLogger("drivemesh")
 
+_RESERVED_LOG_KEYS = set(vars(logging.makeLogRecord({}))) | {"message", "asctime"}
 _LEVELS = {"debug": 10, "info": 20, "warning": 30, "error": 40, "critical": 50}
 
 
@@ -117,10 +118,13 @@ class DriveMesh:
         account_id: str | None = None,
         **detail: Any,
     ) -> None:
+        # Keys like "name"/"msg" are reserved LogRecord attributes: logging raises KeyError
+        # if `extra` overwrites them, so suffix any collision.
+        safe = {(f"{k}_" if k in _RESERVED_LOG_KEYS else k): v for k, v in detail.items()}
         log.log(
             _LEVELS.get(level, 20),
             kind,
-            extra={"event": kind, "file_id": file_id, "account_id": account_id, **detail},
+            extra={"event": kind, "file_id": file_id, "account_id": account_id, **safe},
         )
         try:
             with self.session() as s:
