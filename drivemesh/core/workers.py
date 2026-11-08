@@ -511,6 +511,39 @@ def _revoke_google(dm: DriveMesh, acc: LinkedAccount) -> None:
         )
 
 
+def pooled_capacity(accounts: list[LinkedAccount]) -> dict[str, int]:
+    """Sum capacity across accounts, counting each physical disk once.
+
+    Several local-folder accounts on the same filesystem all report that disk's total and free
+    space; summing them would inflate the pool. Remote accounts (Drive, S3) each have their own
+    quota and are summed as-is. `used_bytes` is DriveMesh's own data, so it is always summed.
+    """
+    import json as _json
+    import os
+
+    total = free = 0
+    seen: set[object] = set()
+    for a in accounts:
+        key: object = a.id
+        if a.provider == "local":
+            path = _json.loads(a.config_json or "{}").get("path")
+            try:
+                if path and not _json.loads(a.config_json or "{}").get("capacity_bytes"):
+                    key = ("dev", os.stat(path).st_dev)
+            except OSError:
+                pass
+        if key in seen:
+            continue
+        seen.add(key)
+        total += a.capacity_bytes or 0
+        free += a.free_bytes or 0
+    return {
+        "total_bytes": total,
+        "used_bytes": sum(a.used_bytes or 0 for a in accounts),
+        "free_bytes": free,
+    }
+
+
 # ---- status -------------------------------------------------------------------------------------
 def cluster_status(dm: DriveMesh, user_id: str | None = None) -> dict[str, Any]:
     with dm.session() as s:
@@ -577,11 +610,7 @@ def cluster_status(dm: DriveMesh, user_id: str | None = None) -> dict[str, Any]:
         ],
         "replicas": rstates,
         "stored_bytes": int(stored_bytes or 0),  # all copies, incl. replication overhead
-        "capacity": {
-            "total_bytes": sum(a.capacity_bytes or 0 for a in accounts),
-            "used_bytes": sum(a.used_bytes or 0 for a in accounts),
-            "free_bytes": sum(a.free_bytes or 0 for a in accounts),
-        },
+        "capacity": pooled_capacity(accounts),
         "files": fstates,
         "under_replicated_chunks": len(ur),
         "unavailable_chunks": sum(1 for _, f, h in ur if h < (f.ec_k or 1)),

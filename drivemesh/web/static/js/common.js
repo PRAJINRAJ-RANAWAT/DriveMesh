@@ -124,3 +124,31 @@ const DM = {
     DM._t = setTimeout(() => t.classList.add("hidden"), 5000);
   },
 };
+
+/* Styled, accessible dialogs (native <dialog>: focus trap, Esc to close) replacing prompt()/confirm(). */
+DM.dialog = function ({ title, body = "", input = null, confirmText = "OK", danger = false }) {
+  return new Promise((resolve) => {
+    const d = DM.el("dialog", { "aria-labelledby": "dm-dialog-title" });
+    const form = DM.el("form", { method: "dialog", class: "dialog-body" });
+    const field = input ? DM.el("input", { name: "value", value: input.value || "", required: true, "aria-label": input.label }) : null;
+    form.append(
+      DM.el("h2", { id: "dm-dialog-title", text: title }),
+      body ? DM.el("p", { class: "muted", text: body }) : "",
+      field ? DM.el("label", { class: "field" }, DM.el("span", { text: input.label }), field) : "",
+      DM.el("div", { class: "dialog-actions" },
+        DM.el("button", { value: "cancel", class: "btn", type: "button", text: "Cancel", onclick: () => d.close("cancel") }),
+        DM.el("button", { value: "ok", class: "btn " + (danger ? "btn-danger-solid" : "btn-primary"), type: "submit", text: confirmText })));
+    d.append(form);
+    document.body.append(d);
+    d.addEventListener("close", () => {
+      const ok = d.returnValue === "ok";
+      const value = field ? field.value.trim() : true;
+      d.remove();
+      resolve(ok ? (field ? value || null : true) : (field ? null : false));
+    });
+    d.showModal();
+    if (field) { field.focus(); field.select(); }
+  });
+};
+DM.ask = (title, label, value = "", confirmText = "Save") => DM.dialog({ title, input: { label, value }, confirmText });
+DM.confirm = (title, body, confirmText = "Delete") => DM.dialog({ title, body, confirmText, danger: true });

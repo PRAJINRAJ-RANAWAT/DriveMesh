@@ -16,7 +16,7 @@
     $("k-capacity-bar").style.width = cap.total_bytes ? ((100 * cap.used_bytes) / cap.total_bytes).toFixed(1) + "%" : "0%";
     const local = s.accounts.some((a) => a.provider === "local");
     $("k-capacity-sub").textContent = `${DM.size(cap.used_bytes)} used · ${DM.size(cap.free_bytes)} free · ${DM.plural(s.accounts.length, "account")}` +
-      (local ? " · local folders report their host disk" : "");
+      (local ? " · local folders on one disk are counted once" : "");
     $("k-stored").textContent = DM.size(s.stored_bytes);
 
     const ok = s.replicas.ok || 0, pending = s.replicas.pending || 0, under = s.under_replicated_chunks, bad = s.unavailable_chunks;

@@ -113,18 +113,18 @@
   }
 
   async function rename(path, name) {
-    const next = prompt("New name", name);
+    const next = await DM.ask(`Rename "${name}"`, "New name", name, "Rename");
     if (!next || next === name) return;
     try { await DM.api("POST", "/api/v1/fs/move", { src: path, dst: path.slice(0, path.lastIndexOf("/") + 1) + next }); load(); renderTree(); }
     catch (err) { DM.toast(err.message, true); }
   }
   async function removeFile(path) {
-    if (!confirm(`Delete ${path}? Its encrypted copies are purged from every account.`)) return;
+    if (!(await DM.confirm(`Delete ${path.split("/").pop()}?`, "Its encrypted copies are purged from every account. This can't be undone."))) return;
     try { await DM.api("DELETE", "/api/v1/files?path=" + encodeURIComponent(path)); DM.toast("Deleted"); load(); }
     catch (err) { DM.toast(err.message, true); }
   }
   async function removeFolder(path) {
-    if (!confirm(`Delete folder ${path} and everything in it?`)) return;
+    if (!(await DM.confirm(`Delete folder ${path.split("/").pop()}?`, "Everything inside it is deleted too, and its copies purged from every account."))) return;
     try { const r = await DM.api("DELETE", "/api/v1/folders?recursive=true&path=" + encodeURIComponent(path)); DM.toast(`Deleted folder (${DM.plural(r.files_deleted, "file")})`); load(); renderTree(); }
     catch (err) { DM.toast(err.message, true); }
   }
@@ -146,8 +146,8 @@
       DM.el("div", { class: "chunk-legend" },
         DM.el("span", {}, DM.el("span", { class: "chunk" }), document.createTextNode("waiting")),
         DM.el("span", {}, DM.el("span", { class: "chunk sending" }), document.createTextNode("sending")),
-        DM.el("span", {}, DM.el("span", { class: "chunk sent" }), document.createTextNode("received")),
-        DM.el("span", {}, DM.el("span", { class: "chunk stored" }), document.createTextNode("stored ×2")),
+        DM.el("span", {}, DM.el("span", { class: "chunk sent" }), document.createTextNode("received, encrypting")),
+        DM.el("span", {}, DM.el("span", { class: "chunk stored" }), document.createTextNode("stored on 2 accounts")),
         per > 1 ? DM.el("span", { text: `each square = ${per} chunks` }) : ""));
     $("uploads").prepend(card);
     const fill = meter.firstChild;
@@ -155,20 +155,43 @@
       const doneChunks = Math.floor(loaded / cs);
       cells.forEach((c, i) => {
         const first = i * per, last = Math.min(nChunks, (i + 1) * per) - 1;
+        if (c.classList.contains("stored")) return;
         c.className = "chunk " + (doneChunks > last ? "sent" : doneChunks >= first && loaded > first * cs ? "sending" : "");
       });
+    };
+    const uploadId = (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()) + Math.random().toString(16).slice(2)).replace(/[^A-Za-z0-9-]/g, "");
+    const stored = new Set();
+    const paintStored = () => cells.forEach((c, i) => {
+      const first = i * per, last = Math.min(nChunks, (i + 1) * per) - 1;
+      let all = true;
+      for (let k = first; k <= last; k++) if (!stored.has(k)) { all = false; break; }
+      if (all) c.className = "chunk stored";
+    });
+    let polling = true;
+    const poll = async () => {
+      while (polling) {
+        await new Promise((r) => setTimeout(r, 450));
+        if (!polling) break;
+        try {
+          const res = await fetch("/api/v1/uploads/" + uploadId);
+          if (res.ok) { (await res.json()).stored_chunks.forEach((k) => stored.add(k)); paintStored(); }
+        } catch (_) { /* transient: keep polling */ }
+      }
     };
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", "/api/v1/files/content?path=" + encodeURIComponent(join(state.path, file.name)) + (overwrite ? "&overwrite=true" : ""));
     xhr.setRequestHeader("X-CSRF-Token", DM.csrf);
     xhr.setRequestHeader("Content-Type", "application/octet-stream");
+    xhr.setRequestHeader("X-Upload-Id", uploadId);
     xhr.upload.onprogress = (e) => {
       if (!e.lengthComputable) return;
       const pct = (100 * e.loaded) / e.total;
       fill.style.width = pct.toFixed(1) + "%";
       setCells(e.loaded);
+      paintStored();
       status.textContent = pct >= 100 ? "Encrypting & replicating…" : `${Math.floor(pct)}% · ${DM.size(e.loaded)} of ${DM.size(e.total)}`;
     };
+    xhr.onloadend = () => { polling = false; };
     xhr.onload = () => {
       if (xhr.status === 201) {
         const info = JSON.parse(xhr.responseText);
@@ -191,6 +214,7 @@
     };
     xhr.onerror = () => { card.classList.add("failed"); status.textContent = "Network error"; };
     xhr.send(file);
+    poll();
   }
 
   async function init() {
@@ -208,7 +232,7 @@
     area.addEventListener("dragleave", (e) => { if (!area.contains(e.relatedTarget)) dz.classList.remove("over"); });
     area.addEventListener("drop", (e) => { e.preventDefault(); dz.classList.remove("over"); for (const f of e.dataTransfer.files) upload(f); });
     $("new-folder").addEventListener("click", async () => {
-      const name = prompt("Folder name");
+      const name = await DM.ask("New folder", "Folder name", "", "Create");
       if (!name) return;
       try { await DM.api("POST", "/api/v1/folders", { path: join(state.path, name) }); load(); renderTree(); }
       catch (err) { DM.toast(err.message, true); }
