@@ -203,3 +203,19 @@ def test_metadata_queries_at_scale(dm, user, accounts):
     rep = fsck(dm)
     assert rep.chunks == 10_000 and rep.under_replicated == 200
     _ = crypto
+
+
+def test_r010_query_plans_use_composite_replica_index(dm, user, accounts):
+    """Regression for R-007: the repair scan's replica lookup must use (chunk_id, state)."""
+    if dm.engine.dialect.name != "sqlite":
+        pytest.skip("SQLite query-plan check")
+    from sqlalchemy import text
+
+    from drivemesh.core.workers import under_replicated_query
+
+    dm.put(user.id, "/x", payload(CHUNK))
+    sql = str(under_replicated_query(dm).compile(dm.engine, compile_kwargs={"literal_binds": True}))
+    with dm.engine.connect() as c:
+        plan = " | ".join(r[-1] for r in c.execute(text("EXPLAIN QUERY PLAN " + sql)))
+    assert "ix_replicas_chunk_state" in plan, plan
+    assert "ix_replicas_state_verified" not in plan, plan

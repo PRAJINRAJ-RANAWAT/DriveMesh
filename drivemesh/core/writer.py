@@ -13,8 +13,8 @@ from __future__ import annotations
 
 import hashlib
 import logging
-from collections import deque
-from concurrent.futures import Future, ThreadPoolExecutor
+import threading
+from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
@@ -94,10 +94,11 @@ class FileWriter:
         self._hash = hashlib.sha256()
         self._size = 0
         self._next_idx = 0
-        self._inflight: deque[Future] = deque()
+        self._inflight: set[Future] = set()
         self._closed = False
         self._aborted = False
         self._bad_accounts: set[str] = set()
+        self._bad_lock = threading.Lock()  # chunk threads update and read it concurrently
         self._last_heartbeat = dm.now()
         self._reserve()
         self._pool = ThreadPoolExecutor(self.window, thread_name_prefix="dm-chunk")
@@ -178,11 +179,15 @@ class FileWriter:
             self._submit(chunk, last=False)
 
     def _submit(self, plain: bytes, last: bool) -> None:
+        # Backpressure without head-of-line blocking: wait for *any* chunk to finish (chunks
+        # are independent until commit), not the oldest one.
         while len(self._inflight) >= self.window:
-            self._inflight.popleft().result()  # backpressure; raises on chunk failure
+            done, self._inflight = wait(self._inflight, return_when=FIRST_COMPLETED)
+            for fut in done:
+                fut.result()  # raises on chunk failure
         idx = self._next_idx
         self._next_idx += 1
-        self._inflight.append(self._pool.submit(self._store_chunk, idx, plain, last))
+        self._inflight.add(self._pool.submit(self._store_chunk, idx, plain, last))
         self._heartbeat()
 
     def _heartbeat(self) -> None:
@@ -223,12 +228,12 @@ class FileWriter:
                 ranked = placement.rank(
                     f"{chunk_id}:{shard_idx}",
                     self.candidates,
-                    exclude=self._bad_accounts | placed_accounts,
+                    exclude=self._bad_snapshot() | placed_accounts,
                     reserve=dm.settings.free_space_reserve,
                     min_free=len(shard),
                 )
                 res = place_object(dm, chunk_id, shard, ranked, 1, shard_idx=shard_idx)
-                self._bad_accounts.update(res.failed_accounts)
+                self._mark_bad(res.failed_accounts)
                 if not res.placed:
                     raise InsufficientAccounts(f"could not place shard {shard_idx} of chunk {idx}")
                 placed_accounts.add(res.placed[0][1])
@@ -236,17 +241,32 @@ class FileWriter:
         ranked = placement.rank(
             chunk_id,
             self.candidates,
-            exclude=self._bad_accounts,
+            exclude=self._bad_snapshot(),
             reserve=dm.settings.free_space_reserve,
             min_free=len(obj),
         )
+        ranked = placement.load_aware(ranked, self.rf, self._load)
         res = place_object(dm, chunk_id, obj, ranked, self.rf)
-        self._bad_accounts.update(res.failed_accounts)
+        self._mark_bad(res.failed_accounts)
         if len(res.placed) < self.quorum:
             raise InsufficientAccounts(
                 f"chunk {idx}: stored {len(res.placed)}/{self.rf} replicas "
                 f"(quorum {self.quorum}); failures: {res.failed_accounts}"
             )
+
+    def _bad_snapshot(self) -> set[str]:
+        with self._bad_lock:
+            return set(self._bad_accounts)
+
+    def _mark_bad(self, accounts) -> None:
+        with self._bad_lock:
+            self._bad_accounts.update(accounts)
+
+    def _load(self, account_id: str) -> int:
+        try:
+            return self.dm.accounts.backend(account_id).pending
+        except Exception:  # noqa: BLE001
+            return 1 << 30
 
     # ---- phase 2 -----------------------------------------------------------------------------
     def close(self) -> FileInfo:
@@ -256,8 +276,9 @@ class FileWriter:
             if self._size > 0:
                 self._submit(bytes(self._buf), last=True)
                 self._buf = bytearray()
-            while self._inflight:
-                self._inflight.popleft().result()
+            for fut in as_completed(self._inflight):
+                fut.result()
+            self._inflight = set()
             info = self._commit()
         except BaseException as exc:
             self.abort(f"{type(exc).__name__}: {exc}")

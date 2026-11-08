@@ -87,13 +87,14 @@ class FileReader:
 
     # ---- replica handling ----------------------------------------------------------------------
     def _order(self, replicas: list[ReplicaRef]) -> list[ReplicaRef]:
-        def key(r: ReplicaRef) -> tuple[int, float]:
+        def key(r: ReplicaRef) -> tuple[int, int, float]:
             state_rank = {"active": 0, "full": 1, "draining": 1}.get(r.account_state, 2)
             try:
-                lat = self.dm.accounts.backend(r.account_id).latency_ewma or 0.0
+                b = self.dm.accounts.backend(r.account_id)
+                pending, lat = b.pending, b.latency_ewma or 0.0
             except Exception:  # noqa: BLE001
-                lat = float("inf")
-            return state_rank, lat
+                pending, lat = 1 << 30, float("inf")
+            return state_rank, pending, lat
 
         return sorted(replicas, key=key)
 

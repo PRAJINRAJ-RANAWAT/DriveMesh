@@ -48,6 +48,7 @@ class Settings(BaseSettings):
     unreachable_after_failures: int = 3
     repair_interval: float = 30.0
     repair_batch: int = 100
+    repair_parallelism: int = Field(8, ge=1, le=64)
     scrub_interval: float = 60.0
     scrub_bytes_per_second: int = 1 * MiB
     gc_interval: float = 300.0

@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import String, and_, case, cast, func, select
 
 from drivemesh.core.accounts import READABLE_STATES
 from drivemesh.db import Chunk, File, LinkedAccount, Replica
@@ -34,41 +34,44 @@ class FsckReport:
 
 def fsck(dm: DriveMesh, *, user_id: str | None = None, deep: bool = False) -> FsckReport:
     rep = FsckReport()
+    # One grouped pass over every chunk (not one query per file): O(chunks) for any file count.
+    readable = and_(Replica.state == "ok", LinkedAccount.state.in_(READABLE_STATES))
+    unit = case((File.scheme == "ec", cast(Replica.shard_idx, String)), else_=Replica.id)
+    healthy = func.count(func.distinct(case((readable, unit), else_=None)))
     with dm.session() as s:
         fq = select(File).where(File.state == "committed")
         if user_id:
             fq = fq.where(File.user_id == user_id)
-        files = list(s.scalars(fq))
+        files = {f.id: f for f in s.scalars(fq)}
         rep.files = len(files)
-        for f in files:
-            healthy = dict(
-                s.execute(
-                    select(Chunk.idx, func.count(Replica.id))
-                    .join(
-                        Replica,
-                        (Replica.chunk_id == Chunk.id) & (Replica.state == "ok"),
-                        isouter=True,
-                    )
-                    .join(LinkedAccount, LinkedAccount.id == Replica.account_id, isouter=True)
-                    .where(Chunk.file_id == f.id)
-                    .where((LinkedAccount.state.in_(READABLE_STATES)) | (Replica.id.is_(None)))
-                    .group_by(Chunk.idx)
-                ).all()
-            )
-            all_idx = list(s.scalars(select(Chunk.idx).where(Chunk.file_id == f.id)))
-            rep.chunks += len(all_idx)
-            if sorted(all_idx) != list(range(f.chunk_count or 0)):
-                rep.errors.append(f"{f.id}: chunk indices {len(all_idx)} != count {f.chunk_count}")
+        cq = (
+            select(Chunk.file_id, Chunk.idx, healthy)
+            .join(File, File.id == Chunk.file_id)
+            .outerjoin(Replica, Replica.chunk_id == Chunk.id)
+            .outerjoin(LinkedAccount, LinkedAccount.id == Replica.account_id)
+            .where(File.state == "committed")
+            .group_by(Chunk.id, Chunk.file_id, Chunk.idx)
+        )
+        if user_id:
+            cq = cq.where(File.user_id == user_id)
+        seen: dict[str, list[int]] = {fid: [] for fid in files}
+        for fid, idx, n in s.execute(cq):
+            f = files[fid]
+            seen[fid].append(idx)
+            rep.chunks += 1
+            rep.replicas_ok += n
             need_readable = f.ec_k if f.scheme == "ec" else 1
             target = (f.ec_k or 0) + (f.ec_m or 0) if f.scheme == "ec" else f.rf
-            for idx in all_idx:
-                n = healthy.get(idx, 0)
-                rep.replicas_ok += n
-                if n < need_readable:
-                    rep.unavailable_chunks += 1
-                    rep.errors.append(f"{f.id}: chunk {idx} has {n} readable replicas")
-                elif n < target:
-                    rep.under_replicated += 1
+            if n < need_readable:
+                rep.unavailable_chunks += 1
+                rep.errors.append(f"{fid}: chunk {idx} has {n} readable replicas")
+            elif n < target:
+                rep.under_replicated += 1
+        for fid, idxs in seen.items():
+            if sorted(idxs) != list(range(files[fid].chunk_count or 0)):
+                rep.errors.append(
+                    f"{fid}: chunk indices {len(idxs)} != count {files[fid].chunk_count}"
+                )
         if deep:
             rows = s.execute(
                 select(Replica.id, Replica.account_id, Replica.remote_id)

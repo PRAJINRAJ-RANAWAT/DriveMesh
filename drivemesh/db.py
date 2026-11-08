@@ -146,11 +146,15 @@ class Replica(Base):
     __tablename__ = "replicas"
     __table_args__ = (
         UniqueConstraint("chunk_id", "account_id", name="uq_replica_chunk_account"),
+        # Composite (chunk_id, state): matches both equality predicates of the repair scan and
+        # fsck, so the planner can never pick the (state, verified_at) index for the join,
+        # which made those queries quadratic (see results.md R-007).
+        Index("ix_replicas_chunk_state", "chunk_id", "state"),
         Index("ix_replicas_account_state", "account_id", "state"),
         Index("ix_replicas_state_verified", "state", "verified_at"),
     )
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
-    chunk_id: Mapped[str] = mapped_column(ForeignKey("chunks.id", ondelete="CASCADE"), index=True)
+    chunk_id: Mapped[str] = mapped_column(ForeignKey("chunks.id", ondelete="CASCADE"))
     account_id: Mapped[str] = mapped_column(ForeignKey("linked_accounts.id"))
     shard_idx: Mapped[int] = mapped_column(Integer, default=0)
     remote_id: Mapped[str | None] = mapped_column(String(512))
@@ -210,7 +214,16 @@ class KV(Base):
     value: Mapped[str] = mapped_column(Text)
 
 
+def normalize_url(url: str) -> str:
+    """Accept provider-style URLs (postgres://, postgresql://) and use the psycopg 3 driver."""
+    for prefix in ("postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            return "postgresql+psycopg://" + url[len(prefix) :]
+    return url
+
+
 def make_engine(url: str) -> Engine:
+    url = normalize_url(url)
     if url.startswith("sqlite"):
         if url.startswith("sqlite:///") and not url.startswith("sqlite:///:memory:"):
             from pathlib import Path
