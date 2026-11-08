@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DriveMesh</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <span class="brand">DriveMesh</span>
+    <nav><a href="/" aria-current="page">Files</a><a href="/status">Cluster status</a></nav>
+    <span class="spacer"></span>
+    <span id="who" class="muted"></span>
+    <button id="logout" class="ghost">Sign out</button>
+  </header>
+  <div class="layout">
+    <aside class="sidebar">
+      <h2>Storage accounts</h2>
+      <ul id="accounts" class="accounts"></ul>
+      <a id="link-google" class="button primary hidden" href="/accounts/link/google">+ Link Google Drive</a>
+      <details id="local-box" class="hidden">
+        <summary>Add local directory (dev)</summary>
+        <form id="local-form">
+          <input name="path" placeholder="/path/to/dir" required>
+          <input name="name" placeholder="name (optional)">
+          <button type="submit">Add</button>
+        </form>
+      </details>
+      <p class="muted small">Each file is chunked, encrypted on the server with a per-file key and stored on several accounts. Losing one account loses nothing.</p>
+    </aside>
+    <main class="content">
+      <div class="toolbar">
+        <nav id="crumbs" class="crumbs" aria-label="breadcrumb"></nav>
+        <span class="spacer"></span>
+        <button id="new-folder">New folder</button>
+        <label class="button primary">Upload<input id="file-input" type="file" multiple class="hidden"></label>
+      </div>
+      <div id="dropzone" class="dropzone">Drop files here to upload</div>
+      <div id="uploads"></div>
+      <table class="files">
+        <thead><tr><th>Name</th><th>Size</th><th>Protection</th><th>Modified</th><th></th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <p id="empty" class="muted hidden">This folder is empty.</p>
+      <p id="toast" class="toast hidden" role="status"></p>
+    </main>
+  </div>
+  <script src="/static/common.js"></script>
+  <script src="/static/app.js"></script>
+</body>
+</html>

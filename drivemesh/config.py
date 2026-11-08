@@ -71,6 +71,9 @@ class Settings(BaseSettings):
     metrics_token: SecretStr | None = None
     public_base_url: str = "http://localhost:8000"
     login_rate_per_minute: int = 10
+    # Optional first-start bootstrap of the owner account (for hosts without shell access).
+    owner_username: str | None = None
+    owner_password: SecretStr | None = None
 
     # Google OAuth (web application client)
     google_client_id: str | None = None

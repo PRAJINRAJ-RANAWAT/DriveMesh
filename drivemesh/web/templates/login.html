@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DriveMesh · Sign in</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body class="center">
+  <main class="card narrow">
+    <h1 class="brand">DriveMesh</h1>
+    <p class="muted">Encrypted, replicated storage across the accounts you own.</p>
+    <form id="login-form" autocomplete="on">
+      <label>Username <input name="username" autocomplete="username" required></label>
+      <label>Password <input name="password" type="password" autocomplete="current-password" required></label>
+      <button type="submit" class="primary">Sign in</button>
+      <p id="login-error" class="error" role="alert"></p>
+    </form>
+  </main>
+  <script src="/static/login.js"></script>
+</body>
+</html>
