@@ -179,7 +179,12 @@ def orphan_sweep(dm: DriveMesh, *, dry_run: bool = False) -> dict[str, int]:
                 select(LinkedAccount).where(LinkedAccount.state.in_(("active", "full", "draining")))
             )
         )
-        known_ids = {f"dm-{rid}" for rid in s.scalars(select(Replica.id)).all()}
+        # Known = any replica's remote id, or the deterministic name of a replica whose upload
+        # outcome is unknown (remote_id NULL). A duplicate object with a known *name* but an
+        # unknown *id* (e.g. a retried put whose first response was lost) is an orphan.
+        rows = s.execute(select(Replica.id, Replica.remote_id)).all()
+        known_remote = {remote for _, remote in rows if remote}
+        unresolved_names = {f"dm-{rid}" for rid, remote in rows if not remote}
     cutoff = now - timedelta(seconds=dm.settings.orphan_grace_seconds)
     found = deleted = 0
     for acc in accounts:
@@ -190,7 +195,11 @@ def orphan_sweep(dm: DriveMesh, *, dry_run: bool = False) -> dict[str, int]:
             log.warning("orphan sweep list failed", extra={"account_id": acc.id, "error": str(exc)})
             continue
         for obj in objects:
-            if obj.name in known_ids or obj.name.startswith("dm-meta-"):
+            if (
+                obj.remote_id in known_remote
+                or obj.name in unresolved_names
+                or obj.name.startswith("dm-meta-")
+            ):
                 continue
             if obj.created_at is not None and obj.created_at > cutoff:
                 continue
