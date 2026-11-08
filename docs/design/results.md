@@ -177,3 +177,18 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 | Chunk-size sweep on real Drive | [placeholder] |
 | Repair time after revoking one real account | [placeholder] |
 | 403/429 retry counts at the default rate limits | [placeholder] |
+
+## R-010: Web UI Lighthouse scores (`local`)
+- Method: `npx lighthouse@12.6.1 <url>` (default mobile emulation: 412×823, throttled) and `--preset=desktop`, using Brave (Chromium) headless,
+  against `drivemesh serve` on localhost. Date: 2026-11-09.
+
+| Page | Mode | Performance | Accessibility | Best practices | SEO | LCP | CLS |
+|---|---|---|---|---|---|---|---|
+| `/` (landing) | mobile | 100 | 100 | 100 | 100 | 1.7 s | 0 |
+| `/` (landing) | desktop | 100 | 100 | 100 | 100 | 0.4 s | 0 |
+| `/login` | mobile | 100 | 100 | 100 | 100 | 1.7 s | 0 |
+| `/login` | desktop | 100 | 100 | 100 | 90 → 100 after adding a meta description | 0.4 s | 0 |
+
+- Signed-in pages (`/app`, `/status`) were not audited by Lighthouse (they need a session).
+  They were checked with puppeteer-core at 1440 px and a true 390 px viewport: 0 console errors, 0 px horizontal overflow.
+- Localhost has no network latency, so a deployed page will score lower on LCP.
