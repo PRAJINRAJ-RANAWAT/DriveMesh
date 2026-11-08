@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import math
-from collections.abc import Iterable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from dataclasses import dataclass
 
 PLACEABLE_STATES = ("active",)
@@ -77,6 +77,23 @@ def rank(
             first_per_provider.append(c)
     rest = [c for c in ordered if c not in first_per_provider]
     return first_per_provider + rest
+
+
+def load_aware(
+    ranked: Sequence[Candidate], need: int, load: Callable[[str], int], window: int = 2
+) -> list[Candidate]:
+    """'Power of two choices' on top of HRW: among the best `window*need` candidates, prefer
+    the least-loaded ones. Long-run balance still follows HRW weights (only top candidates
+    are eligible), while short-run hot spots are avoided. Never reduces provider diversity.
+    """
+    pool = list(ranked[: window * need])
+    if len(pool) <= need:
+        return list(ranked)
+    order = {c.id: i for i, c in enumerate(pool)}
+    by_load = sorted(pool, key=lambda c: (load(c.id), order[c.id]))
+    if len({c.provider for c in by_load[:need]}) < len({c.provider for c in pool[:need]}):
+        return list(ranked)
+    return by_load + list(ranked[window * need :])
 
 
 def choose(key: str, candidates: Sequence[Candidate], n: int, **kwargs) -> list[Candidate]:

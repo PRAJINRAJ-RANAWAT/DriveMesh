@@ -17,6 +17,30 @@ from drivemesh.backends.base import (
 )
 
 
+class SharedLink:
+    """A serialized network link of `bps` bytes/second shared by every user of the object.
+
+    Transfers reserve consecutive time slots, so concurrent transfers share the bandwidth
+    instead of each getting the full rate (models a per-account or host uplink).
+    """
+
+    def __init__(self, bps: float, sleep: Callable[[float], None] = time.sleep):
+        self.bps = float(bps)
+        self._free_at = 0.0
+        self._lock = threading.Lock()
+        self._sleep = sleep
+
+    def transfer(self, nbytes: int) -> None:
+        if nbytes <= 0:
+            return
+        with self._lock:
+            now = time.monotonic()
+            start = max(now, self._free_at)
+            self._free_at = start + nbytes / self.bps
+            wait = self._free_at - now
+        self._sleep(wait)
+
+
 class FaultyBackend:
     """Wraps a backend and injects failures.
 
@@ -25,6 +49,7 @@ class FaultyBackend:
     * fail_next: number of upcoming calls that raise TransientError
     * latency: fixed seconds added to every call (simulates an HTTPS round trip)
     * bandwidth_bps: bytes/second transfer cap per call (simulates a slow link)
+    * links: SharedLink objects every transfer must pass through (per-account / host uplink)
     * corrupt_reads: flip a byte in every object returned by get()
     * crash_after_puts: raise `crash_exc` after N successful puts (simulates process death)
     """
@@ -38,6 +63,7 @@ class FaultyBackend:
         error_rate: float = 0.0,
         seed: int | None = None,
         sleep: Callable[[float], None] = time.sleep,
+        links: tuple[SharedLink, ...] = (),
     ):
         self.inner = inner
         self.provider = inner.provider
@@ -54,6 +80,11 @@ class FaultyBackend:
         self._rng = random.Random(seed)  # noqa: S311 - fault injection, not crypto
         self._sleep = sleep
         self._lock = threading.Lock()
+        self.links = links
+
+    def _transfer(self, nbytes: int) -> None:
+        for link in self.links:
+            link.transfer(nbytes)
 
     def _enter(self, op: str, nbytes: int = 0) -> None:
         with self._lock:
@@ -74,6 +105,7 @@ class FaultyBackend:
 
     def put(self, name: str, data: bytes) -> PutResult:
         self._enter("put", len(data))
+        self._transfer(len(data))
         res = self.inner.put(name, data)
         with self._lock:
             if self.crash_after_puts is not None:
@@ -87,6 +119,7 @@ class FaultyBackend:
         data = self.inner.get(remote_id)
         if self.bandwidth_bps:
             self._sleep(len(data) / self.bandwidth_bps)
+        self._transfer(len(data))
         if self.corrupt_reads and data:
             b = bytearray(data)
             b[len(b) // 2] ^= 0x01

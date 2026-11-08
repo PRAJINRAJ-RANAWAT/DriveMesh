@@ -18,6 +18,7 @@ import signal
 import threading
 import time
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
@@ -121,9 +122,7 @@ def _target(f: File) -> int:
     return (f.ec_k or 0) + (f.ec_m or 0) if f.scheme == "ec" else f.rf
 
 
-def under_replicated(dm: DriveMesh, limit: int | None = None) -> list[tuple[Chunk, File, int]]:
-    """Chunks of committed files with fewer healthy replicas than their target,
-    fewest-healthy first (HDFS priority queues, flattened)."""
+def under_replicated_query(dm: DriveMesh, limit: int | None = None):
     cutoff = _dead_cutoff(dm)
     # replicas: count copies; erasure coding: count *distinct* shard indices
     unit = case((File.scheme == "ec", cast(Replica.shard_idx, String)), else_=Replica.id)
@@ -143,6 +142,13 @@ def under_replicated(dm: DriveMesh, limit: int | None = None) -> list[tuple[Chun
     )
     if limit:
         q = q.limit(limit)
+    return q
+
+
+def under_replicated(dm: DriveMesh, limit: int | None = None) -> list[tuple[Chunk, File, int]]:
+    """Chunks of committed files with fewer healthy replicas than their target,
+    fewest-healthy first (HDFS priority queues, flattened)."""
+    q = under_replicated_query(dm, limit)
     with dm.session() as s:
         return [(c, f, int(h)) for c, f, h in s.execute(q).all()]
 
@@ -292,6 +298,7 @@ def repair_chunk(
         reserve=dm.settings.free_space_reserve,
         min_free=len(obj),
     )
+    ranked = placement.load_aware(ranked, need, lambda aid: dm.accounts.backend(aid).pending)
     res = place_object(dm, chunk.id, obj, ranked, need)
     return "repaired" if len(res.placed) == need else "failed"
 
@@ -324,14 +331,22 @@ def repair(dm: DriveMesh, limit: int | None = None) -> RepairResult:
         return res
     todo = under_replicated(dm, limit or dm.settings.repair_batch)
     metrics.UNDER_REPLICATED.set(len(todo))
-    for chunk, f, _healthy in todo:
-        res.scanned += 1
+
+    def one(item) -> str:
+        chunk, f, _healthy = item
         try:
-            outcome = repair_chunk(dm, chunk, f)
+            return repair_chunk(dm, chunk, f)
         except Exception as exc:
             log.exception("repair failed", extra={"chunk_id": chunk.id})
-            outcome = "failed"
             res.details.append(f"{chunk.id}: {exc}")
+            return "failed"
+
+    # Chunks are independent, so repair them concurrently (bounded). The queue is ordered
+    # fewest-healthy-first, so the most endangered chunks still start first.
+    with ThreadPoolExecutor(dm.settings.repair_parallelism, thread_name_prefix="dm-repair") as ex:
+        outcomes = list(ex.map(one, todo))
+    for outcome in outcomes:
+        res.scanned += 1
         if outcome == "repaired":
             res.repaired += 1
         elif outcome == "unavailable":

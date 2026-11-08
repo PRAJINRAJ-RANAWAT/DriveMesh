@@ -136,6 +136,8 @@ class ResilientBackend:
         self._bucket = TokenBucket(rate, burst, sleep=sleep)
         self._sleep = sleep
         self.latency_ewma: float | None = None
+        self.pending = 0  # calls queued or running: the load signal for placement/reads
+        self._pending_lock = threading.Lock()
 
     def _call(self, op: str, fn: Callable[[], T]) -> T:
         def attempt() -> T:
@@ -157,6 +159,8 @@ class ResilientBackend:
             )
 
         t0 = time.perf_counter()
+        with self._pending_lock:
+            self.pending += 1
         try:
             result = call_with_retry(attempt, self.policy, sleep=self._sleep, on_retry=on_retry)
         except BackendError as exc:
@@ -167,6 +171,9 @@ class ResilientBackend:
                 raise
             metrics.BACKEND_ERRORS.labels(self.provider, "unexpected").inc()
             raise PermanentError(f"{op}: {type(exc).__name__}: {exc}") from exc
+        finally:
+            with self._pending_lock:
+                self.pending -= 1
         elapsed = time.perf_counter() - t0
         metrics.BACKEND_OP_SECONDS.labels(op, self.provider).observe(elapsed)
         self.latency_ewma = (

@@ -91,3 +91,20 @@ def test_faulty_backend_injection():
 
     with pytest.raises(TransientError):
         f.get("dm-1")
+
+
+def test_shared_link_serializes_bandwidth():
+    import threading
+    import time
+
+    from drivemesh.backends.faulty import SharedLink
+
+    link = SharedLink(bps=1_000_000)  # 1 MB/s
+    t0 = time.monotonic()
+    threads = [threading.Thread(target=link.transfer, args=(100_000,)) for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    elapsed = time.monotonic() - t0
+    assert 0.38 < elapsed < 0.7  # 4 x 0.1 s serialized, not 0.1 s in parallel
