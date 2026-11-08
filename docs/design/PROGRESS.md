@@ -13,8 +13,9 @@
 | Phase 1 Correctness foundations | ✅ done |
 | Phase 2 Durability | ✅ done |
 | Phase 3 Scalability | ✅ done |
-| Phase 4 Web app | ⏳ next |
-| Phase 5–7 | ☐ |
+| Phase 4 Web app | ✅ done |
+| Phase 5 Security | ⏳ next |
+| Phase 6–7 | ☐ |
 
 ## Phase 0 summary
 - Legacy prototype moved to `legacy/` unchanged (ADR-017).
@@ -52,6 +53,16 @@
 - One backend contract suite runs against Local, Memory, S3 and the fake Drive.
 - Metadata at 10k chunks in the tests; the 1M-chunk timing is a Phase 6 benchmark.
 - Resumable Drive uploads were already done in Phase 1.
+
+## Phase 4 summary
+- FastAPI app (`drivemesh serve`):
+  - Session login (scrypt), CSRF synchronizer token, login throttle, strict CSP and security headers.
+  - Streamed raw-body upload with backpressure; streamed download with Range/416/ETag.
+  - Namespace ops; accounts (local link, unlink with evacuation); cluster status; /metrics, /healthz, /readyz.
+- Google OAuth web flow (state + PKCE, offline access, `drive.file` scope check, re-link by Google `sub`), tested with a substituted flow and the fake Drive.
+- UI: file browser (drag-and-drop upload with progress, rename, delete), accounts sidebar with health and capacity, status dashboard. No inline JS/CSS; DOM built with `textContent`.
+- Multi-user isolation tests at the HTTP level.
+- Smoke test against a real uvicorn server: a 3 MB round-trip is byte-identical, workers run, a backup is written.
 
 ## Open issues
 - OAuth client secret and the legacy `.key` rotation are pending (owner action; see MANUAL_STEPS.md).
