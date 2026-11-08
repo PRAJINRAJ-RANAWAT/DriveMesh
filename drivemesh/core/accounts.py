@@ -33,7 +33,9 @@ def _default_factory(dm: DriveMesh) -> BackendFactory:
         if acc.provider == "local":
             from drivemesh.backends.local import LocalDiskBackend
 
-            return LocalDiskBackend(cfg["path"], capacity_bytes=cfg.get("capacity_bytes"))
+            return LocalDiskBackend(
+                cfg["path"], capacity_bytes=cfg.get("capacity_bytes"), create=False
+            )
         if acc.provider == "memory":
             from drivemesh.backends.local import MemoryBackend
 
@@ -170,6 +172,7 @@ class AccountRegistry:
         from pathlib import Path
 
         p = str(Path(path).expanduser().resolve())
+        Path(p).mkdir(parents=True, exist_ok=True)  # created once, at link time
         cfg: dict[str, Any] = {"path": p}
         if capacity_bytes is not None:
             cfg["capacity_bytes"] = capacity_bytes

@@ -99,3 +99,11 @@ def test_password_hash_is_salted(dm):
     a = dm.create_user("a", "same")
     b = dm.create_user("b", "same")
     assert a.password_hash != b.password_hash and "same" not in a.password_hash
+
+
+def test_postgres_urls_are_normalized():
+    from drivemesh.db import normalize_url
+
+    assert normalize_url("postgres://u:p@h/db") == "postgresql+psycopg://u:p@h/db"
+    assert normalize_url("postgresql://u:p@h/db?sslmode=require").startswith("postgresql+psycopg")
+    assert normalize_url("sqlite:///x.db") == "sqlite:///x.db"
