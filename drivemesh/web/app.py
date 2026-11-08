@@ -22,7 +22,7 @@ from drivemesh.config import Settings, get_settings
 from drivemesh.core.system import DriveMesh
 from drivemesh.db import User
 from drivemesh.errors import AlreadyExists, DriveMeshError
-from drivemesh.web import api, oauth
+from drivemesh.web import api, facts, oauth
 from drivemesh.web.security import LoginThrottle, RequestContextMiddleware
 
 log = logging.getLogger(__name__)
@@ -135,24 +135,38 @@ def create_app(
             {"error": {"code": "invalid_request", "message": str(exc.errors())}}, status_code=422
         )
 
+    def page(name: str, auth: bool = True):
+        def handler(request: Request):
+            if auth and not request.session.get("uid"):
+                return RedirectResponse("/login", status_code=303)
+            return templates.TemplateResponse(request, name, {"active": name.split(".")[0]})
+
+        return handler
+
     @app.get("/", response_class=HTMLResponse)
     def landing(request: Request):
-        """Public home page; 'Start meshing' leads to /login (or /app when signed in)."""
+        """Public home page; 'Start meshing' leads to /login (or the dashboard when signed in)."""
+        logged_in = bool(request.session.get("uid"))
         return templates.TemplateResponse(
-            request, "landing.html", {"logged_in": bool(request.session.get("uid"))}
+            request,
+            "landing.html",
+            {
+                "logged_in": logged_in,
+                "cta_href": "/app" if logged_in else "/login",
+                "test_count": facts.TEST_COUNT,
+                "coverage": facts.COVERAGE,
+            },
         )
 
-    @app.get("/app", response_class=HTMLResponse)
-    def app_page(request: Request):
-        if not request.session.get("uid"):
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(request, "index.html", {})
-
-    @app.get("/status", response_class=HTMLResponse)
-    def status_page(request: Request):
-        if not request.session.get("uid"):
-            return RedirectResponse("/login", status_code=303)
-        return templates.TemplateResponse(request, "status.html", {})
+    for path, tpl in (
+        ("/app", "dashboard.html"),
+        ("/files", "files.html"),
+        ("/accounts", "accounts.html"),
+        ("/status", "status.html"),
+    ):
+        app.add_api_route(
+            path, page(tpl), methods=["GET"], response_class=HTMLResponse, include_in_schema=False
+        )
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request):

@@ -1,0 +1,67 @@
+{% extends "_app.html" %}
+{% block title %}Overview{% endblock %}
+{% block content %}
+<header class="page-head">
+  <div>
+    <p class="eyebrow">Overview</p>
+    <h1>Your mesh</h1>
+  </div>
+  <div class="page-actions">
+    <a class="btn" href="/accounts">Link account</a>
+    <a class="btn btn-primary" href="/files#upload">Upload <span class="arrow" aria-hidden="true">→</span></a>
+  </div>
+</header>
+<div id="safe-mode" class="banner hidden" role="status"></div>
+
+<section class="kpis" aria-label="Key numbers">
+  <article class="kpi kpi-hero dark">
+    <span class="label">Pooled capacity</span>
+    <span id="k-capacity" class="kpi-value accent">–</span>
+    <div class="meter accent" aria-hidden="true"><span id="k-capacity-bar"></span></div>
+    <span id="k-capacity-sub" class="small muted">–</span>
+  </article>
+  <article class="kpi">
+    <span class="label">Encrypted data stored</span>
+    <span id="k-stored" class="kpi-value">–</span>
+    <span class="small muted">all copies, incl. replication</span>
+  </article>
+  <article class="kpi">
+    <span class="label">Replica health</span>
+    <span id="k-healthy" class="kpi-value">–</span>
+    <span id="k-health-sub" class="small muted">–</span>
+  </article>
+  <article class="kpi">
+    <span class="label">Repair queue</span>
+    <span id="k-queue" class="kpi-value">–</span>
+    <span id="k-queue-sub" class="small muted">–</span>
+  </article>
+</section>
+
+<div class="grid-2">
+  <section class="card" aria-labelledby="usage-title">
+    <div class="card-head"><h2 id="usage-title">Used vs free per account</h2><a class="btn btn-ghost btn-sm" href="/accounts">Manage</a></div>
+    <ul id="usage" class="usage-list"></ul>
+    <div id="usage-empty" class="empty hidden">
+      <p><b>No accounts linked yet.</b></p>
+      <p class="muted">Link at least two accounts so every chunk can have two copies.</p>
+      <a class="btn btn-primary btn-sm" href="/accounts">Link an account</a>
+    </div>
+  </section>
+  <section class="card" aria-labelledby="health-title">
+    <div class="card-head"><h2 id="health-title">Replica health</h2><a class="btn btn-ghost btn-sm" href="/status">Details</a></div>
+    <div class="health-bar" aria-hidden="true"><span id="hb-ok"></span><span id="hb-rep"></span><span id="hb-under"></span></div>
+    <dl class="health-legend">
+      <div><dt><span class="sw ok"></span>Healthy copies</dt><dd id="h-ok">–</dd></div>
+      <div><dt><span class="sw rep"></span>Repairing</dt><dd id="h-rep">–</dd></div>
+      <div><dt><span class="sw under"></span>Under-replicated chunks</dt><dd id="h-under">–</dd></div>
+      <div><dt><span class="sw bad"></span>Unavailable chunks</dt><dd id="h-bad">–</dd></div>
+    </dl>
+  </section>
+</div>
+
+<section class="card" aria-labelledby="activity-title">
+  <div class="card-head"><h2 id="activity-title">Recent activity</h2><span id="updated" class="label muted"></span></div>
+  <ol id="activity" class="activity"></ol>
+</section>
+{% endblock %}
+{% block scripts %}<script src="/static/js/dashboard.js"></script>{% endblock %}
