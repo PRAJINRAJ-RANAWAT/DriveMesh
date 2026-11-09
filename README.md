@@ -131,7 +131,7 @@ Real Google Drive runs are pending** (see [MANUAL_STEPS §4](docs/design/MANUAL_
 | Storage overhead (measured) | RF=2: 2.0000×, RS(4,2): 1.5000×; encryption adds 32 B per chunk (legacy Fernet: +33.34 %) |
 | Metadata at 1M chunks (Postgres 16) | repair scan 5.0 s, full fsck 7.9 s (fsck was 291 s before a query rewrite) |
 | Hot queries use the right index with or without DB statistics | the download replica lookup used to scan every replica on SQLite without statistics (19.9 ms at 40k replicas). Now it always uses the `(chunk_id, state)` index, pinned by plan tests (R-014) |
-| Tests | **249 tests**, 91 % line coverage; CI runs them on SQLite **and** Postgres 16, plus Playwright browser tests |
+| Tests | **258 tests**, 91 % line coverage; CI runs them on SQLite **and** Postgres 16, plus Playwright browser tests |
 
 ### How much space do I get?
 Each free Google account has 15 GB **shared with Gmail and Photos**. DriveMesh keeps 256 MiB free per account.

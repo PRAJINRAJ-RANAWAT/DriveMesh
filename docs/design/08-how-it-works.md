@@ -85,7 +85,7 @@ Number labels used throughout:
 | M17 | 02 §6 / ADR-015: "`drivemesh restore` pulls the snapshot from **any account**" | the CLI restores only from a **local directory** (`restore_from_local_dir`). `restore_from_backend` exists but has no caller (no CLI or UI path for Drive) | `cli.py:250-256`, `backup.py:193-198` |
 | M18 | 02 §4: "max file size 1 TiB by design" | enforced default **10 GiB**: on the declared `Content-Length` and while streaming | `config.py:33`, `api.py:191-194`, `writer.py:171-174` |
 | M19 | 02 §6: a deleted account is detected by "404 on the app folder" | **was** false: the folder id is cached from `config_json`, so `health()` never checked it. **Fixed 2026-11-09:** `health()` now fetches the folder by id. 404 or `trashed` → `NotFoundError` → after 3 probes `unreachable` → repair (`gdrive.py`, `_check_folder`; `tests/test_gdrive.py`) | `gdrive.py:182-184`, `oauth.py:110-117` |
-| M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **249 tests**, 91 % (R-011, 2026-11-09); tested to **5 GB** (R-003) | results.md |
+| M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **258 tests**, 91 % (R-011, 2026-11-09); tested to **5 GB** (R-003) | results.md |
 | M21 | 06 Q2: after an account fails, "reads skip it immediately" | `revoked` replicas are skipped. `unreachable` replicas are still tried, **last** | `reader.py:101,151-152` |
 | M22 | 03 §13: metrics labelled `{account}` | the labels are `{provider}` | `metrics.py:9-14` |
 | M23 | 03 §10: "if the refresh token changes, the new one is persisted" | secrets are written only at link time. Refreshed access tokens live only in memory | `accounts.py:152-153` (only caller of `write_secret`) |
@@ -662,7 +662,7 @@ How to read the table:
 - the server's IP address and the OAuth client
 - an app folder named `DriveMesh`
 
-It does **not** see names or contents. Names are random UUIDs (`db.py:32-33,172-174`) and the 32 B-overhead AEAD hides content (`crypto.py:127-128`).
+It does **not** see names or contents, whatever the file size: a file up to one chunk (8 MiB) is not split but is still one AES-256-GCM object of size+32 B, larger files are one encrypted object per chunk, empty files store nothing, and snapshots are sealed. Pinned by `tests/test_encryption_at_rest.py`. Names are random UUIDs (`db.py:32-33,172-174`) and the 32 B-overhead AEAD hides content (`crypto.py:127-128`).
 
 **The master key:**
 - **Creation:** `drivemesh gen-key` → `k1:` + base64url(32 random bytes from `os.urandom`) (`cli.py:61-71`, `crypto.py:71-72`).
