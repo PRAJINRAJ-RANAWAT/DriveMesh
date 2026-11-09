@@ -145,3 +145,68 @@ def test_cli_operations(cli_env, capsys):
     assert "removed" in capsys.readouterr().out
     assert run("fsck", "--deep") == 0
     assert run("rewrap") == 0
+
+
+def test_upgrade_to_head_keeps_real_data_on_sqlite(tmp_path):
+    """Regression: migration 0003 rebuilds `users` and `linked_accounts` (SQLite batch mode).
+
+    With rows in replicas/files/folders pointing at them and foreign keys enforced, the old
+    env.py failed with 'FOREIGN KEY constraint failed' on a real dev database (an empty test
+    DB hid it). Upgrade a populated 0002 database and check every row survives.
+    """
+    from drivemesh.config import Settings
+    from drivemesh.core.system import DriveMesh
+    from drivemesh.db import make_engine
+
+    url = f"sqlite:///{tmp_path}/m.db"
+    migrate.upgrade(url, "d5a37403a62e")  # schema as of 0002
+    engine = make_engine(url)  # foreign_keys=ON, like the app
+    with engine.begin() as c:
+        c.exec_driver_sql(
+            "INSERT INTO users (id, username, password_hash, created_at) "
+            "VALUES ('u1', 'owner', 'x', '2026-01-01')"
+        )
+        c.exec_driver_sql(
+            "INSERT INTO folders (id, user_id, parent_id, name, created_at) "
+            "VALUES ('f0', 'u1', NULL, '', '2026-01-01')"
+        )
+        c.exec_driver_sql(
+            "INSERT INTO linked_accounts (id, user_id, provider, external_id, display_name, "
+            "config_json, state, consecutive_failures, created_at) "
+            "VALUES ('a1', 'u1', 'local', '/x', 'x', '{}', 'active', 0, '2026-01-01')"
+        )
+        c.exec_driver_sql(
+            "INSERT INTO files (id, user_id, folder_id, name, version, state, chunk_size, "
+            "scheme, rf, wrapped_dek, kek_id, created_at) VALUES ('file1', 'u1', 'f0', 'a', 1, "
+            "'committed', 8, 'replica', 1, x'00', 'k1', '2026-01-01')"
+        )
+        c.exec_driver_sql(
+            "INSERT INTO chunks (id, file_id, idx, plain_size) VALUES ('c1', 'file1', 0, 1)"
+        )
+        c.exec_driver_sql(
+            "INSERT INTO replicas (id, chunk_id, account_id, shard_idx, state, created_at) "
+            "VALUES ('r1', 'c1', 'a1', 0, 'ok', '2026-01-01')"
+        )
+    engine.dispose()
+
+    migrate.upgrade(url)  # must not raise
+
+    engine = make_engine(url)
+    with engine.connect() as c:
+        counts = {
+            t: c.exec_driver_sql(f"SELECT count(*) FROM {t}").scalar()
+            for t in ("users", "folders", "linked_accounts", "files", "chunks", "replicas")
+        }
+        assert counts == dict.fromkeys(counts, 1), counts
+        assert c.exec_driver_sql("SELECT is_admin FROM users").scalar() == 1
+        assert c.exec_driver_sql("PRAGMA foreign_key_check").fetchall() == []
+        assert c.exec_driver_sql("PRAGMA foreign_keys").scalar() == 1
+        leftovers = c.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE name LIKE '_alembic_tmp%'"
+        ).fetchall()
+        assert leftovers == []
+    engine.dispose()
+    DriveMesh(  # the app opens it normally
+        Settings(_env_file=None, database_url=url),
+        keyring=crypto.KeyRing.parse(crypto.generate_key_spec()),
+    ).close()
