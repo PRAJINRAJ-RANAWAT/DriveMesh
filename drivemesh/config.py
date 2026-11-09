@@ -63,7 +63,6 @@ class Settings(BaseSettings):
     balancer_batch: int = 50
     job_poll_interval: float = 1.0
     job_visibility_seconds: float = 300.0
-    safe_mode_timeout: float = 120.0
 
     # Web
     session_secret: SecretStr | None = None
