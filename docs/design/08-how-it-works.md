@@ -94,7 +94,7 @@ Number labels used throughout:
 | M26 | README / 06: "RPO = 15 min" | RPO ≥ interval + backup duration, and **no backups happen unless a `WorkerSet` runs** (a `drivemesh put` from the CLI starts no workers) | `workers.py:648,679-686`, `cli.py:129-141` |
 
 There are also **defects found while writing this** (not doc mismatches). They are in §8.4 and §12.6. The most important ones:
-- a GC-vs-commit lost-update race (§3.6)
+- a GC-vs-commit lost-update race (§3.6), **now fixed**
 - a download query plan that becomes O(all replicas) on SQLite (R-014)
 - uploads that fail on connections slower than ~28 KB/s (§1.5)
 
@@ -409,14 +409,18 @@ sequenceDiagram
 - The remote half of a delete is a durable job: retried, never silently dropped (§3.1).
 - Overwrite: the old version is purged only after the new one committed (same transaction, outbox).
 
-### 3.6 Defect found: GC-vs-commit lost update (code reading, not reproduced)
+### 3.6 Fixed: GC-vs-commit lost update (reproduced, then fixed)
 - `gc.scan` reads expired `pending` files, then sets `state='aborted'` through the ORM **without re-checking the state** in the `UPDATE` (`gc.py:129-134`).
 - Suppose a writer's lease has expired but it is still finishing, e.g. `close()` waiting > ~200 s on slow puts, since nothing heartbeats during `close()` (`writer.py:291-292`). If the writer commits **between GC's SELECT and its flush**:
   1. GC overwrites `committed` with `aborted`.
   2. GC enqueues `gc_file`.
   3. `_purge_file`'s guard (`gc.py:93-94`) sees `aborted` and purges a committed file.
 - The window is milliseconds, but the outcome is data loss.
-- **Fix:** a conditional `UPDATE … WHERE id=:id AND state='pending' AND lease_expires_at < :now` that checks `rowcount`, exactly like the job claim (`jobs.py:101-116`). Also heartbeat during `close()`. **Not fixed yet.**
+- **Reproduced:** `tests/test_gc_commit_race.py::test_gc_abort_cannot_overwrite_a_concurrent_commit` forces this exact interleaving with an SQLAlchemy `after_cursor_execute` hook. Before the fix, the committed file came back `NotFound`: it had been aborted and purged.
+- **Fixed** (2026-11-09) in three parts:
+  1. GC's abort is now a conditional `UPDATE … WHERE id=:id AND state='pending' AND lease_expires_at < :now` that checks `rowcount`, the same pattern as the job claim (`gc.py`, `scan`). The `gc_file` job is enqueued only when that row was actually aborted.
+  2. The commit flip is conditional too (`WHERE state='pending'`, `rowcount` must be 1, otherwise 409). So on SQLite, where the commit's checks run before the write lock, an aborted file is never resurrected (`writer.py`, `_commit`).
+  3. The writer waits on in-flight chunks in 1 s slices and renews the lease between slices, both during backpressure and in `close()` (`writer.py`, `_wait_inflight`). Test: `test_close_keeps_the_lease_alive_while_waiting_for_slow_puts`.
 
 ---
 
@@ -704,7 +708,7 @@ What they mean in practice [computed]:
 
 ### 8.4 Known limitations and honest gaps
 1. No real-Drive measurements yet (R-pending).
-2. GC-vs-commit lost update (§3.6). **Data-loss risk, narrow window. Not fixed.**
+2. ~~GC-vs-commit lost update (§3.6)~~ **Fixed 2026-11-09** with a regression test.
 3. On SQLite without `ANALYZE`, the download replica query becomes O(all replicas) (R-014). **Not fixed.**
 4. Uploads slower than ~28 KB/s fail (lease, §1.6).
 5. RPO ≥ 15 min. Restore after post-snapshot repair/balance can lose chunks (§4.6). There's no CLI restore from Drive (M17).
