@@ -195,10 +195,13 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 
 ## R-011: Test suite size and coverage
 - Method: `pytest --cov=drivemesh` on SQLite, 2026-11-09, after the UI redesign (the same suite also runs on Postgres 16 in CI).
-- Result (updated 2026-11-09 after the five fixes from 08-how-it-works): **235 tests**, made up of 225 unit/integration/API tests passing on SQLite
-  plus 10 Playwright browser tests (they run in the CI `ui` job; skipped locally unless `DRIVEMESH_UI_TESTS=1`). All 10 passed locally
-  against Brave/Chromium. Line coverage **91%** (3,866 statements, 344 missed).
-- Earlier values: 222 tests, 91% (3,845 statements, 349 missed) after the landing/UX iteration; 208 tests, 91% before it.
+- Result (updated 2026-11-09 after Google sign-in, server-side sessions and API tokens): **249 tests**, made up of 239 unit/integration/API tests
+  passing on SQLite plus 10 Playwright browser tests (they run in the CI `ui` job; skipped locally unless `DRIVEMESH_UI_TESTS=1`). All 10 passed
+  locally against Brave/Chromium. Line coverage **91%** (4,121 statements, 366 missed).
+- Earlier values:
+  - 235 tests, 91% (3,866 statements, 344 missed) after the five 08-how-it-works fixes
+  - 222 tests, 91% (3,845, 349) after the landing/UX iteration
+  - 208 tests, 91% before that
 - These two numbers are shown on the landing page (`drivemesh/web/facts.py`); `test_landing_numbers_match_results` fails if they diverge from this entry.
 
 ## R-012: Lighthouse after the "Paper & Ink" redesign (`local`)

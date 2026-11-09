@@ -131,7 +131,7 @@ Real Google Drive runs are pending** (see [MANUAL_STEPS §4](docs/design/MANUAL_
 | Storage overhead (measured) | RF=2: 2.0000×, RS(4,2): 1.5000×; encryption adds 32 B per chunk (legacy Fernet: +33.34 %) |
 | Metadata at 1M chunks (Postgres 16) | repair scan 5.0 s, full fsck 7.9 s (fsck was 291 s before a query rewrite) |
 | Hot queries use the right index with or without DB statistics | the download replica lookup used to scan every replica on SQLite without statistics (19.9 ms at 40k replicas). Now it always uses the `(chunk_id, state)` index, pinned by plan tests (R-014) |
-| Tests | **235 tests**, 91 % line coverage; CI runs them on SQLite **and** Postgres 16, plus Playwright browser tests |
+| Tests | **249 tests**, 91 % line coverage; CI runs them on SQLite **and** Postgres 16, plus Playwright browser tests |
 
 ### How much space do I get?
 Each free Google account has 15 GB **shared with Gmail and Photos**. DriveMesh keeps 256 MiB free per account.
@@ -154,15 +154,39 @@ drivemesh put ./some-file.pdf /some-file.pdf && drivemesh ls / && drivemesh stat
 drivemesh serve            # web UI on http://localhost:8000
 ```
 
+### Accounts and sign-in
+```mermaid
+flowchart LR
+  P[Person] -->|"Continue with Google<br/>(openid email)"| G1[Google sign-in + 2FA]
+  G1 --> DM["DriveMesh account<br/>(keyed by Google sub, no password stored)"]
+  DM -->|"Link a Google Drive account<br/>(drive.file, separate consent)"| S1[(Gmail A storage)] & S2[(Gmail B storage)] & S3[(Gmail C storage)]
+```
+- **Sign up / sign in:** "Continue with Google". Google checks the password and 2-step verification; DriveMesh never sees them. A new Google identity creates a new DriveMesh account (open sign-up).
+- **Link storage:** each Gmail you pool needs its own Google consent. Only someone who can sign in to that Gmail can link it, and **one Gmail belongs to one DriveMesh account**.
+- **Sessions:** HttpOnly cookie backed by a server-side session table. Sign-out, 14-day expiry and **Sign out everywhere** take effect immediately.
+- **API clients:** use JWT access tokens.
+  ```bash
+  # from a signed-in browser session (CSRF header required), get a token pair:
+  POST /api/v1/auth/tokens            → {"access_token": "<JWT, 15 min>", "refresh_token": "<opaque, 30 d>"}
+  curl -H "Authorization: Bearer $ACCESS" "http://localhost:8000/api/v1/fs?path=/"
+  POST /api/v1/auth/tokens/refresh    {"refresh_token": "..."}  → a new pair; the old refresh token is now dead
+  ```
+  Replaying an already-used refresh token revokes the whole token chain (theft detection).
+- **Operators** (accounts made with `drivemesh create-user`) can also link server-local folders and read `/metrics`; self-service users can't.
+
 ### Use real Google Drive accounts
-You need a free Google Cloud OAuth client (one-time). Then link each Gmail account with **+ Link Google Drive** in the web UI. The step-by-step guide is in [MANUAL_STEPS §2–3](docs/design/MANUAL_STEPS.md):
+You need a free Google Cloud OAuth client (one-time). The same client powers both "Continue with Google" and "Link a Google Drive account". The step-by-step guide is in [MANUAL_STEPS §2–3](docs/design/MANUAL_STEPS.md):
 1. Create a Cloud project and enable the **Google Drive API**.
 2. Configure the consent screen as External / Testing, and add your Gmail addresses as test users.
 3. Scopes: `openid`, `userinfo.email` and `drive.file` only. DriveMesh can't see your other Drive files.
 4. Create a **Web** client with redirect URI `http://localhost:8000/accounts/callback/google`.
 5. Put the client ID and secret in `.env` as `DRIVEMESH_GOOGLE_CLIENT_ID` / `DRIVEMESH_GOOGLE_CLIENT_SECRET`.
 
-In Testing mode, Google expires the grants after 7 days. The account then shows `revoked` and you re-link it (one click). Publishing the app avoids this.
+In Testing mode:
+- Only the Gmail addresses you list as **test users** can sign up or link: this is your allowlist.
+- Google expires grants after 7 days. The account then shows `revoked` and you re-link it (one click).
+
+Publishing the app (Google verification) removes both limits.
 
 ### Configuration that matters
 All settings are environment variables `DRIVEMESH_<NAME>` (or `.env`). The full list is in [08 §9.1](docs/design/08-how-it-works.md#91-run-it-locally).
@@ -197,6 +221,8 @@ All settings are environment variables `DRIVEMESH_<NAME>` (or `.env`). The full 
 - Google only ever sees ciphertext under random object names, plus object sizes and timing.
 - Each chunk is bound to its file, version and position, so swapped, reordered or truncated chunks are detected.
 - OAuth tokens and metadata snapshots are sealed with the master key, which lives only in the environment. Key rotation re-wraps keys without re-uploading data.
+
+- Accounts sign in with Google (no DriveMesh passwords to steal). Sessions are revocable server-side. API JWTs expire in 15 minutes, and refresh tokens rotate with reuse detection.
 
 **What isn't:**
 - The DriveMesh server sees plaintext while it encrypts.
@@ -235,4 +261,5 @@ CI runs lint, the tests on SQLite **and** Postgres 16, `pip-audit`, Playwright U
 - Google "Testing" OAuth apps expire grants after 7 days.
 - **Every performance number above is local or simulated.** Google Drive numbers haven't been measured yet.
 - Same-name uploads overwrite (no version history).
-- Not a sync client and not POSIX. No sharing between users, and no per-user storage quota.
+- Not a sync client and not POSIX. No sharing between users, and no per-user storage or bandwidth quota (relevant with open sign-up).
+- The "Continue with Google" button is text-only; publishing a verified app requires Google's branded button.

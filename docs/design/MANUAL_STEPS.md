@@ -52,17 +52,21 @@ The old `.key` and OAuth client secret were public from 2026-03-16 to 2026-11-08
    - `https://<your-render-service>.onrender.com/accounts/callback/google` (add after step 5)
 7. Copy the client ID and secret into `.env` (local) or Render (deploy). Never commit them.
 
-Check: `drivemesh serve` → log in → the "+ Link Google Drive" button is visible.
+Check: `drivemesh serve` → the sign-in page shows **Continue with Google**, and after signing in, Accounts shows **Link a Google Drive account**.
+
+**The same client serves both "Continue with Google" (sign-in / sign-up) and "Link Google Drive"** (storage), through the same
+redirect URI, so no extra setup is needed. Sign-in asks only for `openid` + `email`; linking asks for `drive.file`.
+While the app is in **Testing** mode, only the Gmail addresses listed as test users can sign up or link. That is your sign-up allowlist until you publish the app.
 
 ## 3. Run locally with real Gmail accounts
 ```bash
 cp env.example .env           # then edit .env: DRIVEMESH_MASTER_KEYS, DRIVEMESH_SESSION_SECRET,
                               # DRIVEMESH_GOOGLE_CLIENT_ID / _SECRET
 drivemesh init
-drivemesh create-user owner   # prompts for a password
+drivemesh create-user owner   # optional: an operator account with a password (can link local folders, sees /metrics)
 drivemesh serve               # http://localhost:8000
 ```
-1. Log in, then click **+ Link Google Drive** once per Gmail account. Use the account picker to choose a different account each time, and tick the Drive checkbox on the consent screen.
+1. Click **Continue with Google** to create your DriveMesh account, then on **Accounts** click **Link a Google Drive account** once per Gmail account. Use the account picker to choose a different account each time, and tick the Drive checkbox on the consent screen.
 2. Accounts appear as `active` with their real quota.
 3. Upload a file, open **Cluster status**, and check that replicas are on 2 different accounts (`/api/v1/files/meta?path=…`).
 4. In each Google Drive web UI you should see a `DriveMesh` folder with `dm-…` objects. **Don't delete them by hand** unless you're doing a chaos test.

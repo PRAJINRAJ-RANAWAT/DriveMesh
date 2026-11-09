@@ -123,3 +123,11 @@
   - ~~A deleted `DriveMesh` Drive folder isn't detected by health checks~~: `health()` now verifies the folder (M19).
   - ~~`safe_mode_timeout` is unused~~: deleted; the exit rule is documented and pinned by tests (M8).
   - 26 doc mismatches are listed in 08 §0.3; 02/03/04/06 are not yet corrected in place.
+
+## 2026-11-09: accounts and sign-in
+- "Continue with Google" sign-in and open sign-up (OIDC, `openid email`). Users are keyed by Google `sub`, with no passwords stored for them.
+- Server-side sessions (`sessions` table): logout, expiry and "sign out everywhere" revoke immediately.
+- API tokens: HS256 JWT access tokens (15 min) and opaque rotating refresh tokens (30 d) with reuse detection.
+- One Gmail → one DriveMesh user (global partial unique index). Self-service users are non-admin: no local folders, no global metrics, and the status page is scoped to them.
+- Migration 0003, `tests/test_auth.py` (13 tests), threat model T1/T3/T17–T20, 08 §7.1 and §12.
+- Found while applying 0003 to the real dev DB: SQLite batch migrations failed with `FOREIGN KEY constraint failed` on any populated database (empty test DBs hid it). `migrations/env.py` now disables FK enforcement during migrations and runs `PRAGMA foreign_key_check` afterwards. Regression test: `test_upgrade_to_head_keeps_real_data_on_sqlite`.
