@@ -286,11 +286,28 @@ class GoogleDriveBackend:
             if not token:
                 return
 
+    def _check_folder(self, folder_id: str) -> None:
+        """The app folder must still exist and not be trashed.
+
+        The folder id is cached from config_json, so without this check a user deleting the
+        DriveMesh folder left the account 'healthy' while every object was gone (08 M19).
+        It is deliberately not recreated here: a wiped account must look lost, not
+        healthy-and-empty (same rule as LocalDiskBackend's root).
+        """
+        try:
+            meta = self._exec(
+                lambda: self.svc.files().get(fileId=folder_id, fields="id, trashed").execute()
+            )
+        except NotFoundError as exc:
+            raise NotFoundError(f"DriveMesh folder {folder_id} is missing") from exc
+        if meta.get("trashed"):
+            raise NotFoundError(f"DriveMesh folder {folder_id} is in the trash")
+
     def health(self) -> HealthInfo:
         about = self._exec(
             lambda: self.svc.about().get(fields="storageQuota, user(emailAddress)").execute()
         )
-        self.ensure_folder()
+        self._check_folder(self.ensure_folder())
         q = about.get("storageQuota", {})
         limit = int(q["limit"]) if q.get("limit") else None
         usage = int(q.get("usage", 0))

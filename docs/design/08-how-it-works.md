@@ -84,7 +84,7 @@ Number labels used throughout:
 | M16 | ADR-015: "dump **all** tables … every 15 min, **if changed**" | `events` is **not** backed up. The change hash covers `linked_accounts.last_health_at`, which every health pass rewrites, so in practice it backs up **every** interval | `backup.py:48`, `backup.py:82-84`, `workers.py:76-78` |
 | M17 | 02 §6 / ADR-015: "`drivemesh restore` pulls the snapshot from **any account**" | the CLI restores only from a **local directory** (`restore_from_local_dir`). `restore_from_backend` exists but has no caller (no CLI or UI path for Drive) | `cli.py:250-256`, `backup.py:193-198` |
 | M18 | 02 §4: "max file size 1 TiB by design" | enforced default **10 GiB**: on the declared `Content-Length` and while streaming | `config.py:33`, `api.py:191-194`, `writer.py:170-173` |
-| M19 | 02 §6: a deleted account is detected by "404 on the app folder" | the folder id is cached from `config_json`, so `health()` never checks it. If the user deletes the `DriveMesh` folder, health stays green and the losses are found only by reads or the scrubber | `gdrive.py:182-184,289-297`, `oauth.py:110-117` |
+| M19 | 02 §6: a deleted account is detected by "404 on the app folder" | **was** false: the folder id is cached from `config_json`, so `health()` never checked it. **Fixed 2026-11-09:** `health()` now fetches the folder by id. 404 or `trashed` → `NotFoundError` → after 3 probes `unreachable` → repair (`gdrive.py`, `_check_folder`; `tests/test_gdrive.py`) | `gdrive.py:182-184`, `oauth.py:110-117` |
 | M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **222 tests**, 91 % (R-011); tested to **5 GB** (R-003) | results.md |
 | M21 | 06 Q2: after an account fails, "reads skip it immediately" | `revoked` replicas are skipped. `unreachable` replicas are still tried, **last** | `reader.py:91,141-142` |
 | M22 | 03 §13: metrics labelled `{account}` | the labels are `{provider}` | `metrics.py:9-14` |
@@ -443,7 +443,7 @@ stateDiagram-v2
 ```
 
 ### 4.1 Health checks ("heartbeats")
-- **What:** `backend.health()` for every non-removed account, **one after another** (`workers.py:44-92`). On Drive that is `about.get(storageQuota)`, 1 request (`gdrive.py:289-297`). It records capacity, used, free and `last_ok_at`.
+- **What:** `backend.health()` for every non-removed account, **one after another** (`workers.py:44-92`). On Drive that is `about.get(storageQuota)` plus, since 2026-11-09, `files.get(folder_id, fields=id,trashed)`: **2 read requests** (5 quota units each [Google docs]). A missing or trashed app folder is a failed probe (`gdrive.py`, `_check_folder`). It records capacity, used, free and `last_ok_at`.
 - **How often:** every 60 s (`config.py:46`). It is the only task that also runs in safe mode (`workers.py:643`).
 - **Unhealthy:**
   - `AuthError` → `revoked` immediately (`workers.py:54-59`).
@@ -714,7 +714,7 @@ What they mean in practice [computed]:
 3. ~~On SQLite without `ANALYZE`, the download replica query became O(all replicas) (R-014)~~ **Fixed 2026-11-09**: the lookup is now by `chunk_id IN (…)`, pinned by a plan test.
 4. ~~Uploads slower than ~28 KB/s fail (lease, §1.6)~~ **Fixed 2026-11-09.**
 5. RPO ≥ 15 min. Restore after post-snapshot repair/balance can lose chunks (§4.6). There's no CLI restore from Drive (M17).
-6. A deleted `DriveMesh` folder isn't detected by health checks (M19).
+6. ~~A deleted `DriveMesh` folder isn't detected by health checks (M19)~~ **Fixed 2026-11-09.** Recovery: restore the folder from Drive's trash (the account becomes active again and any extra copies are trimmed), or unlink the account (evacuation). Re-linking creates a *new* folder; the old replica rows then show up as `missing` on read or scrub and get repaired.
 7. Single process, single DB, no HA. Signed-cookie sessions can't be revoked server-side (07 T3).
 8. The metadata DB holds the namespace in plaintext, including plaintext SHA-256 (§7).
 9. EC with N = k+m can't self-heal (§4.7).
