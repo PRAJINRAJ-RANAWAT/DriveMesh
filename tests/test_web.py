@@ -383,9 +383,11 @@ def fake_google(monkeypatch, dm):
     from tests.fakes.fake_drive import FakeDrive
 
     drives = {}
-    scopes = {"value": [oauth.DRIVE_FILE, "openid", "email"]}
+    scopes = scopes_ = {"value": [oauth.DRIVE_FILE, "openid", "email"]}
     sub = {"value": "google-sub-1"}
-    monkeypatch.setattr(oauth, "make_flow", lambda settings, state=None: FakeFlow(scopes["value"]))
+    monkeypatch.setattr(
+        oauth, "make_flow", lambda settings, state=None, scopes=None: FakeFlow(scopes_["value"])
+    )
     monkeypatch.setattr(
         oauth,
         "verify_id_token",

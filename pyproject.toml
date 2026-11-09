@@ -19,6 +19,7 @@ dependencies = [
   "cryptography==50.0.2",
   "Jinja2==3.1.6",
   "itsdangerous==2.2.0",
+  "PyJWT==2.10.1",
   "prometheus_client==0.26.0",
   "google-api-python-client==2.201.0",
   "google-auth==2.62.1",

@@ -13,7 +13,7 @@ from sqlalchemy.orm import Session
 from drivemesh.backends.base import StorageBackend
 from drivemesh.crypto import seal, unseal
 from drivemesh.db import LinkedAccount
-from drivemesh.errors import InvalidRequest, NotFound
+from drivemesh.errors import Conflict, InvalidRequest, NotFound
 from drivemesh.placement import Candidate
 from drivemesh.resilience import ResilientBackend, RetryPolicy
 
@@ -22,6 +22,12 @@ if TYPE_CHECKING:
 
 Wrapper = Callable[[StorageBackend], StorageBackend]
 BackendFactory = Callable[[LinkedAccount, dict[str, Any] | None], StorageBackend]
+
+_TAKEN = {
+    "gdrive": "This Google account is already linked to another DriveMesh account. "
+    "Unlink it there first.",
+    "*": "This storage account is already linked to another DriveMesh account.",
+}
 
 # Accounts whose replicas can still be read.
 READABLE_STATES = ("active", "full", "draining")
@@ -125,8 +131,25 @@ class AccountRegistry:
         secret: dict[str, Any] | None = None,
         email: str | None = None,
     ) -> LinkedAccount:
-        """Link an account, or re-link (refresh credentials) if this external account exists."""
+        """Link an account, or re-link (refresh credentials) if this external account exists.
+
+        An external account (one Gmail, one folder) belongs to at most one DriveMesh user at a
+        time: sharing it would share its app folder, and one user unlinking would revoke
+        Google's grant for the other. Enforced here with a clear error and in the DB by
+        `ux_accounts_external_live`."""
+        from sqlalchemy.exc import IntegrityError
+
         with self.dm.session() as s:
+            taken = s.scalars(
+                select(LinkedAccount.id).where(
+                    LinkedAccount.provider == provider,
+                    LinkedAccount.external_id == external_id,
+                    LinkedAccount.user_id != user_id,
+                    LinkedAccount.state != "removed",
+                )
+            ).first()
+            if taken:
+                raise Conflict(_TAKEN.get(provider, _TAKEN["*"]))
             acc = s.scalars(
                 select(LinkedAccount).where(
                     LinkedAccount.user_id == user_id,
@@ -155,7 +178,10 @@ class AccountRegistry:
             if acc.state in ("revoked", "unreachable", "removed") or not relink:
                 acc.state = "active"
             acc.consecutive_failures, acc.unhealthy_since, acc.last_error = 0, None, None
-            s.flush()
+            try:
+                s.flush()
+            except IntegrityError:  # lost a race with another user linking the same account
+                raise Conflict(_TAKEN.get(provider, _TAKEN["*"])) from None
             acc_id = acc.id
         self.invalidate(acc_id)
         self.dm.event(

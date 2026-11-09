@@ -16,8 +16,9 @@ from drivemesh.core import namespace as ns
 from drivemesh.core.reader import FileReader
 from drivemesh.core.workers import cluster_status, start_evacuation
 from drivemesh.db import File, LinkedAccount, User
-from drivemesh.errors import Forbidden, InvalidRequest, NotFound, TooLarge, Unauthorized
-from drivemesh.web.security import ensure_csrf_token, require_csrf
+from drivemesh.errors import Forbidden, InvalidRequest, NotFound, RateLimited, TooLarge
+from drivemesh.web import auth
+from drivemesh.web.security import current_user, ensure_csrf_token, require_csrf
 
 router = APIRouter(prefix="/api/v1")
 UPLOAD_BUFFER = 1 << 20
@@ -59,36 +60,73 @@ def login(body: LoginBody, request: Request):
             status_code=429,
         )
     user = dm.authenticate(body.username, body.password)
-    request.session.clear()  # new session on login (session fixation defence)
-    request.session["uid"] = user.id
-    token = ensure_csrf_token(request)
-    dm.event("login", user_id=user.id, client=client)
+    token = auth.start_session(request, dm, user)
+    dm.event("login", user_id=user.id, client=client, method="password")
     return {"user": {"id": user.id, "username": user.username}, "csrf_token": token}
 
 
 @router.post("/auth/logout", status_code=204)
 def logout(request: Request, user: User = Depends(require_csrf)):
+    auth.end_session(request, _dm(request))
+    return Response(status_code=204)
+
+
+@router.post("/auth/logout-all", status_code=204)
+def logout_all(request: Request, user: User = Depends(require_csrf)):
+    """Sign out everywhere: every browser session, refresh token and access token of the user."""
+    auth.revoke_everything(_dm(request), user.id)
     request.session.clear()
     return Response(status_code=204)
 
 
 @router.get("/auth/me")
-def me(request: Request):
-    uid = request.session.get("uid")
-    if not uid:
-        raise Unauthorized("login required")
+def me(request: Request, user: User = Depends(current_user)):
     dm = _dm(request)
-    with dm.session() as s:
-        user = s.get(User, uid)
-    if user is None:
-        raise Unauthorized("login required")
-    return {
-        "user": {"id": user.id, "username": user.username},
-        "csrf_token": ensure_csrf_token(request),
+    out: dict[str, Any] = {
+        "user": {"id": user.id, "username": user.username, "email": user.email},
+        "is_admin": user.is_admin,
+        "sign_in": "google" if user.google_sub else "password",
         "google_configured": bool(dm.settings.google_client_id),
         "chunk_size": dm.settings.chunk_size,
-        "allow_local_backends": dm.settings.allow_local_backends,
+        # Server-local folders are an operator feature: never offered to self-service users.
+        "allow_local_backends": dm.settings.allow_local_backends and user.is_admin,
     }
+    if request.state.auth == "cookie":
+        out["csrf_token"] = ensure_csrf_token(request)
+    return out
+
+
+# ---- API tokens (JWT access + rotating refresh) ------------------------------------------------
+class RefreshBody(BaseModel):
+    refresh_token: str = Field(min_length=20, max_length=200)
+
+
+def _throttle(request: Request) -> None:
+    client = request.client.host if request.client else "unknown"
+    if not request.app.state.login_throttle.allow(client):
+        raise RateLimited("too many attempts; slow down")
+
+
+@router.post("/auth/tokens", status_code=201)
+def create_tokens(request: Request, user: User = Depends(require_csrf)):
+    """Issue an access + refresh token pair for API clients (scripts, CLI tools, apps)."""
+    dm = _dm(request)
+    pair = auth.issue_tokens(dm, request.app.state.jwt_key, user.id)
+    dm.event("api_token_issued", user_id=user.id)
+    return pair
+
+
+@router.post("/auth/tokens/refresh")
+def refresh_token(body: RefreshBody, request: Request):
+    _throttle(request)
+    return auth.refresh_tokens(_dm(request), request.app.state.jwt_key, body.refresh_token)
+
+
+@router.post("/auth/tokens/revoke", status_code=204)
+def revoke_token(body: RefreshBody, request: Request):
+    _throttle(request)
+    auth.revoke_refresh_token(_dm(request), body.refresh_token)
+    return Response(status_code=204)
 
 
 # ---- namespace ----------------------------------------------------------------------------------
@@ -369,6 +407,9 @@ def add_local(body: LocalAccountBody, request: Request, user: User = Depends(req
     dm = _dm(request)
     if not dm.settings.allow_local_backends:
         raise Forbidden("local backends are disabled on this deployment")
+    if not user.is_admin:
+        # A server path is the operator's disk: a self-service user must never link one.
+        raise Forbidden("only the server operator can link local folders")
     acc = dm.accounts.link_local(user.id, body.path, body.name, body.capacity_bytes)
     from drivemesh.core.workers import health_check
 
@@ -389,7 +430,7 @@ def remove_account(account_id: str, request: Request, user: User = Depends(requi
 # ---- cluster ------------------------------------------------------------------------------------
 @router.get("/cluster/status")
 def status(request: Request, user: User = Depends(require_csrf)):
-    return cluster_status(_dm(request), user.id)
+    return cluster_status(_dm(request), user.id, admin=user.is_admin)
 
 
 __all__ = ["metrics", "router"]

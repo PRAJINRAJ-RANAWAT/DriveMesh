@@ -27,13 +27,20 @@
       <form id="login-form" class="auth-card" autocomplete="on" novalidate>
         <a class="brand auth-brand" href="/">{% include "_logo.html" %}DriveMesh</a>
         <p class="eyebrow">Sign in</p>
-        <h1>Welcome back</h1>
+        <h1>Welcome</h1>
+        {% if google_configured %}
+        <p class="muted">Sign in, or create your DriveMesh account, with Google.</p>
+        <a id="google-signin" class="btn btn-primary btn-lg btn-block" href="/auth/google">Continue with Google <span class="arrow" aria-hidden="true">→</span></a>
+        <p class="muted small">Google checks your password and 2-step verification; DriveMesh never sees them. Signing in only shares your email address. You link the Gmail accounts you want to use for storage afterwards, each with its own consent.</p>
+        <p class="auth-divider"><span>or sign in with a password</span></p>
+        {% else %}
         <p class="muted">Sign in to your mesh.</p>
+        {% endif %}
         <div id="login-error" class="form-error hidden" role="alert"></div>
-        <label class="field"><span>Username</span><input name="username" autocomplete="username" required autofocus></label>
+        <label class="field"><span>Username</span><input name="username" autocomplete="username" required{% if not google_configured %} autofocus{% endif %}></label>
         <label class="field"><span>Password</span><input name="password" type="password" autocomplete="current-password" required></label>
-        <button type="submit" class="btn btn-primary btn-lg btn-block">Sign in <span class="arrow" aria-hidden="true">→</span></button>
-        <p class="muted small">No account? The owner creates one with <code>drivemesh create-user</code>.</p>
+        <button type="submit" class="btn {% if not google_configured %}btn-primary{% endif %} btn-lg btn-block">Sign in <span class="arrow" aria-hidden="true">→</span></button>
+        <p class="muted small">{% if google_configured %}Password accounts are created by the server operator (<code>drivemesh create-user</code>).{% else %}No account? The owner creates one with <code>drivemesh create-user</code>, or enables Google sign-in.{% endif %}</p>
         <div class="auth-foot"><a class="small" href="/">← Back to home</a>{% include "_theme_toggle.html" %}</div>
       </form>
     </main>

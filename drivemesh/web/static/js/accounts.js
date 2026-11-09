@@ -51,6 +51,7 @@
   (async () => {
     const me = await DM.loadMe();
     if (!me) return;
+    $("welcome").classList.toggle("hidden", new URLSearchParams(location.search).get("welcome") !== "1");
     $("link-google").classList.toggle("hidden", !me.google_configured);
     $("google-off").classList.toggle("hidden", me.google_configured);
     $("local-form").classList.toggle("hidden", !me.allow_local_backends);
