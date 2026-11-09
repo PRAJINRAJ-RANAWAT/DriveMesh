@@ -73,7 +73,7 @@ Number labels used throughout:
 | M5 | 02 §1 / 03 §6: a block-report "reconcile" job "run rarely because listing is expensive" | the analogue is `gc.orphan_sweep`. It lists **every** active/full/draining account every `gc_interval` = **300 s** | `workers.py:646`, `gc.py:177-193`, `config.py:54` |
 | M6 | 03 §2 diagram: one transaction inserts chunk + replicas; the lease is extended per chunk. 02 §2: "one DB transaction per chunk, not per replica" | chunk row = 1 commit; **each replica = 2 commits** (insert `pending`, update `ok`); so **1 + 2·RF commits per chunk** (traced). The lease heartbeat runs at most every lease/3 = 100 s, only when a chunk is submitted | `writer.py:214-224`, `replication.py:66-77,102-105`, `writer.py:196-205`; §12.4 trace |
 | M7 | 03 §3: chunks and replicas loaded "in one query"; replica order uses a "random tie-break" | two queries; order = (account state rank, in-flight ops, latency EWMA), with **no randomness** | `reader.py:66-75`, `reader.py:89-99` |
-| M8 | 02 §1: safe mode until "every account has passed one health check (or a timeout passes)". 03 §6: "exits once every non-removed account has been probed" | it exits after the **first** health pass in which **≥ 1** account is active/full/draining (or there are no accounts at all). `safe_mode_timeout` is **never read** | `workers.py:660-671`, `config.py:66` (grep: no other use) |
+| M8 | 02 §1: safe mode until "every account has passed one health check (or a timeout passes)". 03 §6: "exits once every non-removed account has been probed" | it exits after the **first** health pass in which **≥ 1** account is active/full/draining (or there are no accounts at all). There is no timeout: the unused `safe_mode_timeout` setting was **deleted 2026-11-09**, and the rule is pinned by `tests/test_safe_mode.py` | `workers.py:660-671` |
 | M9 | 03 §6: "a replica on a dead account is marked `missing`"; a "`chunk_lost` CRITICAL event" | repair never marks dead-account replicas; they stop counting. The event is `chunks_unavailable` | `workers.py:4-11,235-243`, `workers.py:359-360` |
 | M10 | 03 §7: "a retried put first deletes any partial object with the same name" | no such code. A duplicate object from a retried put is left for the orphan sweep (its id isn't in the DB) | `gdrive.py:204-232`, `gc.py:182-187` |
 | M11 | 02 §5: "resumable uploads cost 2 HTTP requests per object"; reads cost 1 `get_media` each | at defaults an object is 8 MiB + 32 B. Upload = initiate + **3** PUTs of ≤ 4 MiB = **4 requests**; download = **3** ranged GETs. 02 §5 also ignores Google's **200-unit** download cost | `gdrive.py:44,209-231,241-245`; [Google docs] |
@@ -508,7 +508,12 @@ Code: `workers.py:415-456` (start), `workers.py:459-495` (job), `workers.py:498-
 - **Leaves:** on the first health pass with ≥ 1 healthy account, or with no accounts at all (`workers.py:668-670`). It runs synchronously at start (`workers.py:691-692`), so normally startup leaves it at once.
 - **Blocked:** new uploads → 503 (`writer.py:112-113`); the repair, scrub, GC, backup, balancer and job threads skip their work (`workers.py:673-686`, `workers.py:330-331,369-370`, `balancer.py:36-37`). `/readyz` returns 503 (`app.py:221-224`).
 - **Allowed:** reads, listing, move, mkdir, and delete tombstoning. The purge job waits.
-- **Not used:** `safe_mode_timeout` (`config.py:66`) is dead configuration.
+- **No timeout.** The unused `safe_mode_timeout` setting was deleted on 2026-11-09 instead of being implemented. The exit rule above is already safe:
+  - Writes check their own quorum (`writer.py:134-137`).
+  - Repair ignores unhealthy accounts until `dead_after` (`workers.py:99-107`).
+  - The orphan sweep and backups only touch healthy accounts (`gc.py:177-181`, `backup.py:111-113`).
+
+  A startup timeout would only have delayed writes. The rule is pinned by `tests/test_safe_mode.py`: enter at start; enter again after `unreachable_after_failures` passes with every account failing; leave on the first pass with one healthy account; zero accounts is not safe mode.
 - **When there's no `WorkerSet`** (CLI commands, `workers_enabled=false`), safe mode is never entered (`system.py:82`).
 
 ### 4.6 Metadata backup and restore
