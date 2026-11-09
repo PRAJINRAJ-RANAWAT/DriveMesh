@@ -131,3 +131,4 @@
 - One Gmail → one DriveMesh user (global partial unique index). Self-service users are non-admin: no local folders, no global metrics, and the status page is scoped to them.
 - Migration 0003, `tests/test_auth.py` (13 tests), threat model T1/T3/T17–T20, 08 §7.1 and §12.
 - Found while applying 0003 to the real dev DB: SQLite batch migrations failed with `FOREIGN KEY constraint failed` on any populated database (empty test DBs hid it). `migrations/env.py` now disables FK enforcement during migrations and runs `PRAGMA foreign_key_check` afterwards. Regression test: `test_upgrade_to_head_keeps_real_data_on_sqlite`.
+- First real Google Drive upload (656 MiB) failed. Every chunk > 4 MiB hit httplib2's 308-as-redirect bug (`Redirected but the response is missing a Location: header`). Fixed in `gdrive.drive_http()`, with a real-httplib2 regression test. The 4 failed attempts were aborted and fully GC'd (0 leftover chunks).

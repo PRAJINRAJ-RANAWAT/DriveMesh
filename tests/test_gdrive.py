@@ -246,3 +246,73 @@ def test_missing_app_folder_makes_account_unreachable(dm, user):
         states = health_check(dm)
     assert states[accs["g1"].id] == "unreachable"
     assert dm.accounts.get(accs["g1"].id).unhealthy_since is not None
+
+
+def test_resumable_upload_over_real_httplib2_survives_308(tmp_path):
+    """Regression: real Drive answers each resumable part with '308 Resume Incomplete'.
+
+    httplib2 >= 0.19 treats 308 as a redirect and raised 'Redirected but the response is
+    missing a Location: header', so every object larger than one 4 MiB part failed on real
+    Google Drive. The fake Drive never exercised httplib2, so this runs the real stack
+    (googleapiclient -> AuthorizedHttp -> httplib2) against a local server that speaks the
+    resumable-upload protocol.
+    """
+    import json
+    import re
+    import threading
+    from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+    from google.auth.credentials import AnonymousCredentials
+    from googleapiclient.discovery import build_from_document
+    from googleapiclient.discovery_cache import get_static_doc
+
+    from drivemesh.backends.gdrive import drive_http
+
+    stored = bytearray()
+
+    class Resumable(BaseHTTPRequestHandler):
+        def log_message(self, *a):  # keep test output quiet
+            pass
+
+        def _reply(self, status, headers=(), body=b""):
+            self.send_response(status)
+            for k, v in headers:
+                self.send_header(k, v)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def do_POST(self):  # start a resumable session
+            self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            port = self.server.server_address[1]
+            self._reply(200, [("Location", f"http://127.0.0.1:{port}/session/1")])
+
+        def do_PUT(self):  # one part: "bytes a-b/total", or a status query "bytes */total"
+            data = self.rfile.read(int(self.headers.get("Content-Length", 0)))
+            m = re.match(r"bytes (\d+)-(\d+)/(\d+)", self.headers.get("Content-Range", ""))
+            if m is None:  # status query: report what has arrived so far
+                have = [("Range", f"bytes=0-{len(stored) - 1}")] if stored else []
+                self._reply(308, have)
+                return
+            stored.extend(data)
+            end, total = int(m.group(2)), int(m.group(3))
+            if end + 1 < total:  # exactly what Google sends: 308, a Range header, no Location
+                self._reply(308, [("Range", f"bytes=0-{end}")])
+            else:
+                body = json.dumps({"id": "obj-1", "size": str(total)}).encode()
+                self._reply(200, [("Content-Type", "application/json")], body)
+
+    server = ThreadingHTTPServer(("127.0.0.1", 0), Resumable)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    try:
+        doc = json.loads(get_static_doc("drive", "v3"))
+        doc["rootUrl"] = f"http://127.0.0.1:{server.server_address[1]}/"
+        http = drive_http(AnonymousCredentials(), timeout=10)
+        service = build_from_document(doc, http=http)
+        backend = GoogleDriveBackend(lambda: service, folder_id="F", upload_chunk=256 * 1024)
+        data = bytes(range(256)) * 4097  # just over 4 parts of 256 KiB
+        res = backend.put("dm-x", data)
+        assert res.remote_id == "obj-1" and res.size == len(data)
+        assert bytes(stored) == data
+    finally:
+        server.shutdown()
