@@ -232,7 +232,9 @@ async def _stream_upload(request: Request, dm, user: User, path: str, kwargs: di
     try:
         async for piece in request.stream():
             buf += piece
-            if len(buf) >= UPLOAD_BUFFER:
+            # Flush at 1 MiB, or early when the writer's lease is due, so a slow client's
+            # upload stays alive (the lease is renewed inside write()).
+            if len(buf) >= UPLOAD_BUFFER or (buf and writer.heartbeat_due()):
                 data = bytes(buf)
                 buf.clear()
                 await run_in_threadpool(writer.write, data)  # backpressure: awaits the pipeline
