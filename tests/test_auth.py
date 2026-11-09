@@ -207,7 +207,7 @@ def test_access_tokens_expire_and_cannot_be_forged(app, user, clock, dm):
     claims = jwt.decode(tok, options={"verify_signature": False})
     forged = [
         tok[:-4] + ("AAAA" if not tok.endswith("AAAA") else "BBBB"),  # bad signature
-        jwt.encode(claims, "wrong-key", algorithm="HS256"),
+        jwt.encode(claims, "a-wrong-but-full-length-signing-key-xyz", algorithm="HS256"),
         jwt.encode(claims, None, algorithm="none"),
         jwt.encode({**claims, "typ": "refresh"}, app.state.jwt_key, algorithm="HS256"),
         jwt.encode({**claims, "aud": "other"}, app.state.jwt_key, algorithm="HS256"),
