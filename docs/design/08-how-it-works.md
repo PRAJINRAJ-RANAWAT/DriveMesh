@@ -279,6 +279,12 @@ These are [computed] from code constants, for 1 GiB, RF = 2, 8 MiB chunks:
 - **Time:** it is bandwidth-bound. The host must upload 2 × 1 GiB, so `T ≥ 2.15 GB / host uplink` [computed]. That is ≈ 3.6 min at 10 MB/s, before per-request latency.
   **Real Drive throughput: [placeholder]** (MANUAL_STEPS §4).
 
+**Real-Drive defect found on first use (fixed 2026-11-09).**
+- Google answers each 4 MiB part of a resumable upload with `308 Resume Incomplete`. httplib2 ≥ 0.19 treats 308 as a redirect, so every object larger than one part (every 8 MiB chunk) failed with `Redirected but the response is missing a Location: header`.
+- After the retries, the chunk's upload failed and was aborted cleanly. Nothing was committed and GC removed the leftovers.
+- The cause: `gdrive.py` built its `httplib2.Http` by hand and skipped the workaround that googleapiclient's `build_http()` applies. `drive_http()` now removes 308 from the redirect codes.
+- Why tests missed it: the fake Drive never ran httplib2. `test_resumable_upload_over_real_httplib2_survives_308` now runs the real googleapiclient → AuthorizedHttp → httplib2 stack against a local server that speaks the resumable protocol, and it failed with the same message before the fix.
+
 ### 1.6 Streaming, max size, memory
 - **Streamed end to end.** No temp files; the body is pulled in 1 MiB pieces, and `write()` blocks while 4 chunks are in flight (`api.py:229-243`, `writer.py:188-196`).
 - **Max file size:** `max_upload_bytes` = 10 GiB default, configurable with no code upper bound (`config.py:33`).

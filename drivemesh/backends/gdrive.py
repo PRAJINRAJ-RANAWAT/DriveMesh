@@ -94,6 +94,22 @@ def map_error(exc: BaseException) -> BackendError:
     return PermanentError(f"{type(exc).__name__}: {exc}")
 
 
+def drive_http(credentials: Any, timeout: float = 60.0) -> Any:
+    """The authorized HTTP client every Drive call goes through.
+
+    Drive answers each part of a resumable upload with "308 Resume Incomplete". httplib2
+    (>= 0.19) treats 308 as a redirect and fails with "Redirected but the response is missing
+    a Location: header", so every object larger than one upload part failed on real Drive.
+    googleapiclient's own build_http() applies the same fix; building Http by hand skipped it.
+    """
+    import google_auth_httplib2
+    import httplib2
+
+    http = httplib2.Http(timeout=timeout)
+    http.redirect_codes = http.redirect_codes - {308}
+    return google_auth_httplib2.AuthorizedHttp(credentials, http=http)
+
+
 def revoke_token(token: str, *, timeout: float = 10.0) -> bool:
     """Best-effort revocation of a refresh/access token at Google (used on unlink)."""
     import urllib.parse
@@ -134,12 +150,9 @@ class GoogleDriveBackend:
     @classmethod
     def from_credentials(cls, credentials: Any, folder_id: str | None = None, **kw: Any):
         def factory() -> Any:
-            import google_auth_httplib2
-            import httplib2
             from googleapiclient.discovery import build
 
-            http = google_auth_httplib2.AuthorizedHttp(credentials, http=httplib2.Http(timeout=60))
-            return build("drive", "v3", http=http, cache_discovery=False)
+            return build("drive", "v3", http=drive_http(credentials), cache_discovery=False)
 
         return cls(factory, folder_id, **kw)
 
