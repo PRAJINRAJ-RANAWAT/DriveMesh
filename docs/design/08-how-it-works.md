@@ -29,7 +29,7 @@ Number labels used throughout:
 | 1 | **8 MiB** | default chunk size (range 64 KiB–256 MiB) | `config.py:29` |
 | 2 | **RF = 2** | default copies per chunk (range 1–5, per file) | `config.py:30`, `writer.py:90-92` |
 | 3 | **32 B** | encryption overhead per stored object (4 B magic + 12 B nonce + 16 B tag) vs Fernet's +33.34 % | `crypto.py:26`, R-001 |
-| 4 | **4** | chunks in flight per transfer, so at most 4 × RF = 8 concurrent object uploads per file | `config.py:32`, `writer.py:107` |
+| 4 | **4** | chunks in flight per transfer, so at most 4 × RF = 8 concurrent object uploads per file | `config.py:32`, `writer.py:108` |
 | 5 | **60 s / 3 / 600 s** | health-check interval / consecutive failures before `unreachable` / grace period before an unhealthy account's replicas stop counting | `config.py:46-48` |
 | 6 | **900 s, keep 5** | metadata snapshot interval and retention per account | `config.py:59-60` |
 | 7 | **10 GiB** | default max upload size | `config.py:33` |
@@ -40,24 +40,24 @@ Number labels used throughout:
 ### 0.2 Ten facts
 
 1. **Two-phase write.**
-   - Phase 1: a `pending` file row with a wrapped per-file key (`writer.py:110-162`).
+   - Phase 1: a `pending` file row with a wrapped per-file key (`writer.py:111-163`).
    - Then chunks are streamed, encrypted and placed.
-   - Phase 2: one transaction checks that chunks `0..n-1` all exist with ≥ quorum `ok` replicas, then flips `pending → committed` (`writer.py:304-345`).
+   - Phase 2: one transaction checks that chunks `0..n-1` all exist with ≥ quorum `ok` replicas, then flips `pending → committed` (`writer.py:325-381`).
    - A crash before commit leaves nothing visible.
 2. **Placement** is weighted rendezvous hashing, with free bytes as the weight and provider-diverse ordering (`placement.py:44-79`). A "power of two choices" step then takes the least-loaded of the top 2·RF candidates (`placement.py:82-96`).
 3. **Encryption.**
    - AES-256-GCM per chunk, with a random 96-bit nonce under a random per-file-version key (DEK) (`crypto.py:75-81`).
    - The associated data is `dm1|file_id|version|idx|last` (`crypto.py:123-124`).
    - The DEK is wrapped by the master key (KEK) (`crypto.py:93-94`).
-   - Encryption happens **on the DriveMesh server**. The browser sends plaintext over HTTPS (`api.py:229-241`).
-4. **Every read verifies three things:** the stored object's SHA-256 (no key needed), the GCM tag with its AAD, and, for full reads, the whole-file SHA-256 (`reader.py:132-135`, `reader.py:175-188`, `reader.py:215-219`).
+   - Encryption happens **on the DriveMesh server**. The browser sends plaintext over HTTPS (`api.py:229-243`).
+4. **Every read verifies three things:** the stored object's SHA-256 (no key needed), the GCM tag with its AAD, and, for full reads, the whole-file SHA-256 (`reader.py:142-145`, `reader.py:185-198`, `reader.py:225-229`).
 5. **The metadata DB is the NameNode** and the single source of truth (`db.py:1-7`). Remote object names are opaque (`dm-<replica uuid>`, `db.py:172-174`).
 6. **Repair** is a periodic scan, not a job.
    - Every 30 s it takes up to 100 under-replicated chunks, fewest-healthy first, and fixes 8 in parallel (`workers.py:328-347`).
    - A dead account's replicas stop counting after `dead_after`. They are never deleted or "forgotten" by repair (`workers.py:4-11`).
 7. **Safe mode.**
    - It is entered at worker start (`workers.py:689`) and whenever a health pass finds accounts but none healthy (`workers.py:664-667`).
-   - While it is on, writes, repair, scrub, GC, balancing, job execution and backup stop. Reads keep working (`writer.py:112-113`, `workers.py:673-686`).
+   - While it is on, writes, repair, scrub, GC, balancing, job execution and backup stop. Reads keep working (`writer.py:113-114`, `workers.py:673-686`).
 8. **Background work** is 7 daemon threads in the web process: health, jobs, repair, gc, scrub, backup and balancer (`workers.py:642-653`). Jobs (`delete_file`, `gc_file`, `evacuate`) are rows in a `jobs` table with leases (`jobs.py:84-119`).
 9. **Unlink = evacuate.** The account is marked `draining`, every chunk on it is re-replicated elsewhere, then its copies are deleted. After that the account is set to `removed` and its Google token is revoked (`workers.py:415-495`). Unlinking is refused if the remaining accounts can't hold the widest stored scheme (`workers.py:423-443`).
 10. **The KEK is the root of everything.** Without it nothing decrypts: not the files, the stored OAuth tokens or the metadata snapshots (`crypto.py:93-120`, `accounts.py:104-114`, `backup.py:87-93`). There is no escrow. Rotation re-wraps keys only; no data is re-uploaded (`keys.py:21-37`).
@@ -70,27 +70,27 @@ Number labels used throughout:
 | M2 | 03-lld §1: `chunks(id, file_id, idx, plain_size)` | also `object_size`, `object_sha256` (needed for EC reconstruction checks) | `db.py:137-139` |
 | M3 | 03-lld §1: index `ix_replicas_verified` | it is `ix_replicas_state_verified` | `db.py:154` |
 | M4 | 03-lld §1/§6: job kinds include `rebalance`, `backup`, `rewrap`, `reconcile` | only `delete_file`, `gc_file`, `evacuate` are registered. Balance and backup are periodic tasks, rewrap is a CLI command, and "reconcile" doesn't exist | `gc.py:114,119`, `workers.py:459`, `workers.py:642-653` |
-| M5 | 02 §1 / 03 §6: a block-report "reconcile" job "run rarely because listing is expensive" | the analogue is `gc.orphan_sweep`. It lists **every** active/full/draining account every `gc_interval` = **300 s** | `workers.py:646`, `gc.py:177-193`, `config.py:54` |
-| M6 | 03 §2 diagram: one transaction inserts chunk + replicas; the lease is extended per chunk. 02 §2: "one DB transaction per chunk, not per replica" | chunk row = 1 commit; **each replica = 2 commits** (insert `pending`, update `ok`); so **1 + 2·RF commits per chunk** (traced). The lease heartbeat runs at most every lease/3 = 100 s, only when a chunk is submitted | `writer.py:214-224`, `replication.py:66-77,102-105`, `writer.py:196-205`; §12.4 trace |
-| M7 | 03 §3: chunks and replicas loaded "in one query"; replica order uses a "random tie-break" | two queries; order = (account state rank, in-flight ops, latency EWMA), with **no randomness** | `reader.py:66-75`, `reader.py:89-99` |
+| M5 | 02 §1 / 03 §6: a block-report "reconcile" job "run rarely because listing is expensive" | the analogue is `gc.orphan_sweep`. It lists **every** active/full/draining account every `gc_interval` = **300 s** | `workers.py:646`, `gc.py:186-202`, `config.py:54` |
+| M6 | 03 §2 diagram: one transaction inserts chunk + replicas; the lease is extended per chunk. 02 §2: "one DB transaction per chunk, not per replica" | chunk row = 1 commit; **each replica = 2 commits** (insert `pending`, update `ok`); so **1 + 2·RF commits per chunk** (traced). The lease heartbeat runs at most every lease/3 = 100 s, only when a chunk is submitted | `writer.py:236-246`, `replication.py:66-77,102-105`, `writer.py:214-227`; §12.4 trace |
+| M7 | 03 §3: chunks and replicas loaded "in one query"; replica order uses a "random tie-break" | two queries; order = (account state rank, in-flight ops, latency EWMA), with **no randomness** | `reader.py:67-71`, `reader.py:99-109` |
 | M8 | 02 §1: safe mode until "every account has passed one health check (or a timeout passes)". 03 §6: "exits once every non-removed account has been probed" | it exits after the **first** health pass in which **≥ 1** account is active/full/draining (or there are no accounts at all). There is no timeout: the unused `safe_mode_timeout` setting was **deleted 2026-11-09**, and the rule is pinned by `tests/test_safe_mode.py` | `workers.py:660-671` |
 | M9 | 03 §6: "a replica on a dead account is marked `missing`"; a "`chunk_lost` CRITICAL event" | repair never marks dead-account replicas; they stop counting. The event is `chunks_unavailable` | `workers.py:4-11,235-243`, `workers.py:359-360` |
-| M10 | 03 §7: "a retried put first deletes any partial object with the same name" | no such code. A duplicate object from a retried put is left for the orphan sweep (its id isn't in the DB) | `gdrive.py:204-232`, `gc.py:182-187` |
+| M10 | 03 §7: "a retried put first deletes any partial object with the same name" | no such code. A duplicate object from a retried put is left for the orphan sweep (its id isn't in the DB) | `gdrive.py:204-232`, `gc.py:191-196` |
 | M11 | 02 §5: "resumable uploads cost 2 HTTP requests per object"; reads cost 1 `get_media` each | at defaults an object is 8 MiB + 32 B. Upload = initiate + **3** PUTs of ≤ 4 MiB = **4 requests**; download = **3** ranged GETs. 02 §5 also ignores Google's **200-unit** download cost | `gdrive.py:44,209-231,241-245`; [Google docs] |
 | M12 | ADR-009: "Drive's resumable granularity (256 KiB multiples) divides [8 MiB] evenly" | the object is 8 MiB **+ 32 B**, so the last resumable request carries 32 bytes | `crypto.py:26`, `gdrive.py:44` |
 | M13 | ADR-009: "4 in-flight chunks ≈ 100 MiB peak memory" | measured peak RSS 214–331 MiB (68 MiB is the interpreter baseline) | R-003 |
 | M14 | ADR-002: SQLite `busy_timeout=5000`; CI runs "a smoke suite" on Postgres | `busy_timeout=30000`; CI runs the **full** `pytest -q` on Postgres 16 | `db.py:239`, `.github/workflows/ci.yml:89` |
-| M15 | ADR-004: EC "kept behind one `ChunkCodec` seam" | there's no `ChunkCodec`. EC branches are inline in the writer, reader and repair | `writer.py:225-244`, `reader.py:139-167`, `workers.py:248-282` |
+| M15 | ADR-004: EC "kept behind one `ChunkCodec` seam" | there's no `ChunkCodec`. EC branches are inline in the writer, reader and repair | `writer.py:247-266`, `reader.py:149-177`, `workers.py:248-282` |
 | M16 | ADR-015: "dump **all** tables … every 15 min, **if changed**" | `events` is **not** backed up. The change hash covers `linked_accounts.last_health_at`, which every health pass rewrites, so in practice it backs up **every** interval | `backup.py:48`, `backup.py:82-84`, `workers.py:76-78` |
 | M17 | 02 §6 / ADR-015: "`drivemesh restore` pulls the snapshot from **any account**" | the CLI restores only from a **local directory** (`restore_from_local_dir`). `restore_from_backend` exists but has no caller (no CLI or UI path for Drive) | `cli.py:250-256`, `backup.py:193-198` |
-| M18 | 02 §4: "max file size 1 TiB by design" | enforced default **10 GiB**: on the declared `Content-Length` and while streaming | `config.py:33`, `api.py:191-194`, `writer.py:170-173` |
+| M18 | 02 §4: "max file size 1 TiB by design" | enforced default **10 GiB**: on the declared `Content-Length` and while streaming | `config.py:33`, `api.py:191-194`, `writer.py:171-174` |
 | M19 | 02 §6: a deleted account is detected by "404 on the app folder" | **was** false: the folder id is cached from `config_json`, so `health()` never checked it. **Fixed 2026-11-09:** `health()` now fetches the folder by id. 404 or `trashed` → `NotFoundError` → after 3 probes `unreachable` → repair (`gdrive.py`, `_check_folder`; `tests/test_gdrive.py`) | `gdrive.py:182-184`, `oauth.py:110-117` |
 | M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **235 tests**, 91 % (R-011, after the 2026-11-09 fixes); tested to **5 GB** (R-003) | results.md |
-| M21 | 06 Q2: after an account fails, "reads skip it immediately" | `revoked` replicas are skipped. `unreachable` replicas are still tried, **last** | `reader.py:91,141-142` |
+| M21 | 06 Q2: after an account fails, "reads skip it immediately" | `revoked` replicas are skipped. `unreachable` replicas are still tried, **last** | `reader.py:101,151-152` |
 | M22 | 03 §13: metrics labelled `{account}` | the labels are `{provider}` | `metrics.py:9-14` |
 | M23 | 03 §10: "if the refresh token changes, the new one is persisted" | secrets are written only at link time. Refreshed access tokens live only in memory | `accounts.py:152-153` (only caller of `write_secret`) |
 | M24 | 03 §6: scrubber is "continuous, rate-limited 1 MiB/s" | bursty: once every 60 s it reads up to a 60 MiB budget (+ one object of overshoot), at most 100 replicas per pass | `workers.py:367-389`, `config.py:52-53` |
-| M25 | 02 §1, ADR-008: "client-side encryption" | encryption is **server-side** (DriveMesh server), client-side only relative to Google. The README says this correctly | `api.py:229-241`, `README.md` |
+| M25 | 02 §1, ADR-008: "client-side encryption" | encryption is **server-side** (DriveMesh server), client-side only relative to Google. The README says this correctly | `api.py:229-243`, `README.md` |
 | M26 | README / 06: "RPO = 15 min" | RPO ≥ interval + backup duration, and **no backups happen unless a `WorkerSet` runs** (a `drivemesh put` from the CLI starts no workers) | `workers.py:648,679-686`, `cli.py:129-141` |
 
 There are also **defects found while writing this** (not doc mismatches). They are in §8.4 and §12.6. The most important ones:
@@ -143,26 +143,26 @@ sequenceDiagram
 1. **Admission.**
    - The declared `Content-Length` is checked against `max_upload_bytes` before any work starts (`api.py:191-194`).
    - `ec=k,m` selects erasure coding; otherwise `rf` applies (`api.py:195-202`).
-2. **Reserve (phase 1)** runs in one transaction (`writer.py:110-162`):
-   - It refuses in safe mode (503) (`writer.py:112-113`).
-   - It refuses if a folder has the same name (`writer.py:118-119`).
-   - It refuses if a committed file exists and `overwrite` is false (409) (`writer.py:120-121`).
-   - `version = max(version)+1` for that path (`writer.py:122-129`).
-   - It snapshots the user's accounts as placement candidates (`writer.py:130`).
-   - It refuses if fewer than the quorum are eligible (`writer.py:131-137`).
-   - It generates a 256-bit DEK and wraps it with the active KEK (AAD `dek|file_id`) (`writer.py:139-140`, `crypto.py:93-94`).
-   - It inserts `files(state='pending', lease_expires_at=now+300 s)` (`writer.py:144-162`, `config.py:55`).
+2. **Reserve (phase 1)** runs in one transaction (`writer.py:111-163`):
+   - It refuses in safe mode (503) (`writer.py:113-114`).
+   - It refuses if a folder has the same name (`writer.py:119-120`).
+   - It refuses if a committed file exists and `overwrite` is false (409) (`writer.py:121-122`).
+   - `version = max(version)+1` for that path (`writer.py:123-130`).
+   - It snapshots the user's accounts as placement candidates (`writer.py:131`).
+   - It refuses if fewer than the quorum are eligible (`writer.py:132-138`).
+   - It generates a 256-bit DEK and wraps it with the active KEK (AAD `dek|file_id`) (`writer.py:140-141`, `crypto.py:93-94`).
+   - It inserts `files(state='pending', lease_expires_at=now+300 s)` (`writer.py:145-163`, `config.py:55`).
 3. **Chunking.**
-   - The API reads the socket and calls `write()` every 1 MiB (`api.py:23,233-240`). The CLI reads the file in 1 MiB blocks (`system.py:186,195-197`).
-   - The writer emits a chunk only when **strictly more** than `chunk_size` is buffered (`writer.py:177-182`). That holds back the final chunk so `close()` can encrypt it with `last=True` (`writer.py:288-290`).
+   - The API reads the socket and calls `write()` every 1 MiB (`api.py:23,233-242`). The CLI reads the file in 1 MiB blocks (`system.py:186,195-197`).
+   - The writer emits a chunk only when **strictly more** than `chunk_size` is buffered (`writer.py:178-183`). That holds back the final chunk so `close()` can encrypt it with `last=True` (`writer.py:310-312`).
 4. **Hashing.**
-   - Whole-file plaintext SHA-256 is updated incrementally (`writer.py:174`).
-   - Each encrypted object gets its own SHA-256, recorded on the chunk (`writer.py:222`) and on every replica (`replication.py:57,104`).
+   - Whole-file plaintext SHA-256 is updated incrementally (`writer.py:175`).
+   - Each encrypted object gets its own SHA-256, recorded on the chunk (`writer.py:244`) and on every replica (`replication.py:57,104`).
 5. **Encryption.**
    - `object = b"DMC1" ‖ nonce(12, os.urandom) ‖ AES-256-GCM(ciphertext ‖ tag(16))` (`crypto.py:5,79-81,127-128`).
    - The associated data is `f"dm1|{file_id}|{version}|{idx}|{int(last)}"` (`crypto.py:123-124`).
    - The chunk is encrypted once. Every replica stores **identical bytes**.
-6. **Placement.** See §1.3: `writer.py:245-252`.
+6. **Placement.** See §1.3: `writer.py:267-274`.
 7. **Replication** (`replication.py:43-107`):
    - It inserts a `pending` replica row first; that row's id fixes the remote name `dm-<id>` (`replication.py:66-77`, `db.py:172-174`).
    - It submits `backend.put` to the shared I/O pool (`replication.py:78-79`).
@@ -175,26 +175,26 @@ sequenceDiagram
    - up to 6 attempts with full-jitter backoff, capped at 32 s, **only for `TransientError`** (`resilience.py:38-71`, `config.py:40-42`)
 
    On Drive, `put` is a resumable session with 4 MiB requests. It resumes the same session up to 3 times on a transient error before giving up to the retry layer (`gdrive.py:204-232`).
-9. **Commit (phase 2)** runs in one transaction (`writer.py:304-345`):
+9. **Commit (phase 2)** runs in one transaction (`writer.py:325-381`):
    - `SELECT … FOR UPDATE` on the file row (Postgres only; SQLite ignores it, §12.6).
-   - The file must still be `pending`; otherwise it was aborted or its lease expired → 409 (`writer.py:312-313`).
-   - One grouped query counts `ok` replicas per chunk index (`writer.py:314-325`). Indices must be exactly `0..n-1` (`writer.py:326-327`), each with ≥ quorum (`writer.py:328-330`).
-   - If an old committed version exists: without `overwrite` → 409. With `overwrite` it becomes `deleting`, and a `delete_file` job is enqueued in the **same** transaction (`writer.py:331-343`, the transactional outbox).
-   - The new version is flipped to `committed` with size, SHA-256 and chunk count (`writer.py:344-345`).
-   - If a concurrent writer committed the same path first, the partial unique index raises `IntegrityError`. With `overwrite` the commit retries once; otherwise → 409 (`writer.py:346-350`).
+   - The file must still be `pending`; otherwise it was aborted or its lease expired → 409 (`writer.py:333-334`).
+   - One grouped query counts `ok` replicas per chunk index (`writer.py:335-346`). Indices must be exactly `0..n-1` (`writer.py:347-348`), each with ≥ quorum (`writer.py:349-351`).
+   - If an old committed version exists: without `overwrite` → 409. With `overwrite` it becomes `deleting`, and a `delete_file` job is enqueued in the **same** transaction (`writer.py:352-364`, the transactional outbox).
+   - The new version is flipped to `committed` with size, SHA-256 and chunk count (`writer.py:365-381`).
+   - If a concurrent writer committed the same path first, the partial unique index raises `IntegrityError`. With `overwrite` the commit retries once; otherwise → 409 (`writer.py:382-386`).
 10. **Parallelism.**
-    - Per file: `inflight_chunks` = 4 chunk threads (`writer.py:107`). Each fans out RF puts at once, so there are **≤ 8 concurrent object uploads per file at defaults**.
+    - Per file: `inflight_chunks` = 4 chunk threads (`writer.py:108`). Each fans out RF puts at once, so there are **≤ 8 concurrent object uploads per file at defaults**.
     - Process-wide: a shared I/O pool of 32 threads (`system.py:66,83`).
     - Per account: ≤ 4 concurrent calls.
-    - Backpressure waits for *any* chunk to finish, not the oldest one (`writer.py:185-190`). This fix came from R-004.
+    - Backpressure waits for *any* chunk to finish, not the oldest one (`writer.py:189-192`). This fix came from R-004.
 
 ### 1.2 Replicas: how many, where configured, per file?
 - **Default:** RF = 2 (`config.py:30`), set by `DRIVEMESH_DEFAULT_RF` (env prefix, `config.py:17-18`).
 - **Per file:**
   - `?rf=N` on the API (`api.py:201-202`) or `--rf N` in the CLI (`cli.py:136-137`), validated 1–5 (`writer.py:90-92`).
   - Erasure coding per file: `?ec=k,m` / `--ec k,m` (`api.py:196-200`, `cli.py:133-135`).
-  - Both are stored on the row (`files.rf`, `files.scheme`, `ec_k`, `ec_m`; `writer.py:153-156`).
-- **Write quorum:** `min_write_replicas` (default unset = RF; `config.py:31,106-108`). Setting it below RF lets a commit succeed with fewer copies, and repair fills the gap later. EC always requires all k+m shards (`writer.py:87`).
+  - Both are stored on the row (`files.rf`, `files.scheme`, `ec_k`, `ec_m`; `writer.py:154-157`).
+- **Write quorum:** `min_write_replicas` (default unset = RF; `config.py:31,105-107`). Setting it below RF lets a commit succeed with fewer copies, and repair fills the gap later. EC always requires all k+m shards (`writer.py:87`).
 
 ### 1.3 Placement: rendezvous hashing + load awareness
 
@@ -207,13 +207,13 @@ flowchart LR
   L --> P["place_object: first RF succeed,<br/>rest = fallback list"]
 ```
 
-- **Eligibility** (`placement.py:61-68`): `state == 'active'` only (`placement.py:21`). It needs free − reserve ≥ the object size (`writer.py:249-250`, reserve 256 MiB, `config.py:34`) and must not be in the upload's bad-account set (`writer.py:248`). Unknown free space gets weight 2³⁰ (`placement.py:22,38-41`).
+- **Eligibility** (`placement.py:61-68`): `state == 'active'` only (`placement.py:21`). It needs free − reserve ≥ the object size (`writer.py:271-272`, reserve 256 MiB, `config.py:34`) and must not be in the upload's bad-account set (`writer.py:270`). Unknown free space gets weight 2³⁰ (`placement.py:22,38-41`).
 - **Score** (`placement.py:44-48`): `−w/ln(u)`. An account's chance of being the top pick is proportional to its weight. Removing an account only moves the keys whose top pick was that account.
 - **Provider diversity** (`placement.py:72-79`): the best account of each provider goes first. It has no effect when every account is Google.
-- **Load awareness** (`placement.py:82-96`): from the top `2·RF` candidates, prefer the fewest in-flight backend calls (`writer.py:277-281`, `resilience.py:139,162-176`). It falls back to the plain order if this would reduce provider diversity.
-- **The weights don't change within an upload.** `free_bytes` comes from the DB as of the last health check, snapshotted once at reserve (`writer.py:130`).
+- **Load awareness** (`placement.py:82-96`): from the top `2·RF` candidates, prefer the fewest in-flight backend calls (`writer.py:299-303`, `resilience.py:139,162-176`). It falls back to the plain order if this would reduce provider diversity.
+- **The weights don't change within an upload.** `free_bytes` comes from the DB as of the last health check, snapshotted once at reserve (`writer.py:131`).
 
-**Worked example.** I ran the real `placement.rank` on illustrative chunk keys `chunk-00..11`; real keys are random UUIDs (`writer.py:213`).
+**Worked example.** I ran the real `placement.rank` on illustrative chunk keys `chunk-00..11`; real keys are random UUIDs (`writer.py:235`).
 - Three Google accounts with free space A = 14 GB, B = 10 GB, C = 5 GB.
 - A 100 MB file (10⁸ B) → ⌈10⁸ / 8 MiB⌉ = **12 chunks**: 11 × 8 MiB + 7,725,312 B.
 
@@ -255,11 +255,11 @@ stateDiagram-v2
 
 | Event | What the code does | Left behind | Cleanup |
 |---|---|---|---|
-| One target account fails permanently (Auth/QuotaFull/Permanent, or Transient after 6 attempts) | Its replica row stays `pending`. `QuotaFull` → account `full`, `Auth` → `revoked` (`replication.py:36-40,93-101`). The account joins the upload's bad set (`writer.py:254`) and the next candidate is tried | a `pending` row, maybe a partial object | GC scan purges `pending`/`missing`/`corrupt` rows older than 1 h on committed files (`gc.py:141-153`, `config.py:56`) |
-| Too few accounts for a chunk | `InsufficientAccounts` (503). `close()`/the API catch it and `abort()` (`writer.py:255-259,295-297`, `api.py:242-244`) | file `aborted`, uploaded replicas | `gc_file` job (enqueued in `abort`, `writer.py:378-384`) deletes every replica: by `remote_id`, or for `pending` ones by name (`gc.py:32-39`) |
-| Client disconnects / cancels | the `request.stream()` loop raises; the API calls `abort()` (`api.py:242-244`) | as above | as above |
-| Process crash / `SIGKILL` | nothing runs. The file stays `pending` and the lease stops being refreshed | `pending` file, rows, objects | GC scan: `pending` with `lease_expires_at < now` → `aborted` + `gc_file` (`gc.py:129-135`). An object whose upload outran its DB update is found by the deterministic name `dm-<replica_id>` (`gc.py:35`). Anything else, e.g. a duplicate from a retried put, goes to the orphan sweep after 24 h (`gc.py:162-218`, `config.py:57`) |
-| Too large mid-stream | `abort("too large")` + 413 (`writer.py:170-173`) | as above | as above |
+| One target account fails permanently (Auth/QuotaFull/Permanent, or Transient after 6 attempts) | Its replica row stays `pending`. `QuotaFull` → account `full`, `Auth` → `revoked` (`replication.py:36-40,93-101`). The account joins the upload's bad set (`writer.py:276`) and the next candidate is tried | a `pending` row, maybe a partial object | GC scan purges `pending`/`missing`/`corrupt` rows older than 1 h on committed files (`gc.py:150-162`, `config.py:56`) |
+| Too few accounts for a chunk | `InsufficientAccounts` (503). `close()`/the API catch it and `abort()` (`writer.py:277-281,316-318`, `api.py:244-246`) | file `aborted`, uploaded replicas | `gc_file` job (enqueued in `abort`, `writer.py:414-420`) deletes every replica: by `remote_id`, or for `pending` ones by name (`gc.py:32-39`) |
+| Client disconnects / cancels | the `request.stream()` loop raises; the API calls `abort()` (`api.py:244-246`) | as above | as above |
+| Process crash / `SIGKILL` | nothing runs. The file stays `pending` and the lease stops being refreshed | `pending` file, rows, objects | GC scan: `pending` with `lease_expires_at < now` → `aborted` + `gc_file` (`gc.py:128-142`). An object whose upload outran its DB update is found by the deterministic name `dm-<replica_id>` (`gc.py:35`). Anything else, e.g. a duplicate from a retried put, goes to the orphan sweep after 24 h (`gc.py:171-227`, `config.py:57`) |
+| Too large mid-stream | `abort("too large")` + 413 (`writer.py:171-174`) | as above | as above |
 
 **Verified by:** R-008 `kill-upload`: 10/10 trials with 0 orphans, fsck clean [measured, local].
 
@@ -280,7 +280,7 @@ These are [computed] from code constants, for 1 GiB, RF = 2, 8 MiB chunks:
   **Real Drive throughput: [placeholder]** (MANUAL_STEPS §4).
 
 ### 1.6 Streaming, max size, memory
-- **Streamed end to end.** No temp files; the body is pulled in 1 MiB pieces, and `write()` blocks while 4 chunks are in flight (`api.py:229-241`, `writer.py:184-194`).
+- **Streamed end to end.** No temp files; the body is pulled in 1 MiB pieces, and `write()` blocks while 4 chunks are in flight (`api.py:229-243`, `writer.py:188-196`).
 - **Max file size:** `max_upload_bytes` = 10 GiB default, configurable with no code upper bound (`config.py:33`).
 - **Memory.** In theory: buffer ≤ chunk + 1 MiB, plus 4 × (plaintext + ciphertext), plus per-put copies.
   **Measured** peak RSS: 214 MiB (100 MB file) to 331 MiB (5 GB file), flat from 1 GB to 5 GB (R-003 [measured, local], upload + download in one process).
@@ -319,34 +319,34 @@ sequenceDiagram
 ```
 
 ### 2.1 Steps
-1. **Metadata lookup.** `dm.stat` resolves the path to the single `committed` row (`api.py:280`, `system.py:206-208`, `namespace.py:71-79`). The reader:
-   - unwraps the DEK (`reader.py:61`)
-   - loads chunks in index order, plus all `ok` replicas with their account states, in **two** queries (`reader.py:65-86`)
-2. **Replica selection.** Replicas are ordered by `(state rank, pending, latency)`. The rank is active 0, full/draining 1, anything else 2; `pending` is in-flight calls on that account; latency is the EWMA of recent calls (`reader.py:89-99`, `resilience.py:179-181`). **Why:** the least-loaded healthy replica spreads reads across accounts. This is the read side of R-004's fix.
-3. **Fallback order** (`reader.py:137-147`):
-   - Replicas on `revoked`/`removed` accounts are skipped; `unreachable` ones are tried last (`reader.py:141-142`).
-   - **Missing** (404) → the replica is marked `missing` + an event, then the next one is tried (`reader.py:121-123`).
-   - **Auth error** → the account is marked `revoked`, then the next replica (`reader.py:124-126`).
+1. **Metadata lookup.** `dm.stat` resolves the path to the single `committed` row (`api.py:282`, `system.py:206-208`, `namespace.py:71-79`). The reader:
+   - unwraps the DEK (`reader.py:62`)
+   - loads chunks in index order, plus all `ok` replicas with their account states, in **two** queries (`reader.py:66-96`)
+2. **Replica selection.** Replicas are ordered by `(state rank, pending, latency)`. The rank is active 0, full/draining 1, anything else 2; `pending` is in-flight calls on that account; latency is the EWMA of recent calls (`reader.py:99-109`, `resilience.py:179-181`). **Why:** the least-loaded healthy replica spreads reads across accounts. This is the read side of R-004's fix.
+3. **Fallback order** (`reader.py:147-157`):
+   - Replicas on `revoked`/`removed` accounts are skipped; `unreachable` ones are tried last (`reader.py:151-152`).
+   - **Missing** (404) → the replica is marked `missing` + an event, then the next one is tried (`reader.py:131-133`).
+   - **Auth error** → the account is marked `revoked`, then the next replica (`reader.py:134-136`).
    - **Slow / transient** → the retry layer retries up to 6× first (`resilience.py:44-71`), then the next replica. There is **no hedged read and no timeout-based failover** beyond the HTTP timeout (60 s, `gdrive.py:141`). A slow replica is only avoided by the next read's EWMA ordering.
-   - **Corrupted** (SHA-256 mismatch) → marked `corrupt`, next (`reader.py:132-134`).
-   - **Hash matches but the AEAD tag fails**: the recorded object is wrong for this position (e.g. a swapped row). It's marked `corrupt` and the remaining replicas are tried (`reader.py:175-186`).
+   - **Corrupted** (SHA-256 mismatch) → marked `corrupt`, next (`reader.py:142-144`).
+   - **Hash matches but the AEAD tag fails**: the recorded object is wrong for this position (e.g. a swapped row). It's marked `corrupt` and the remaining replicas are tried (`reader.py:185-196`).
    - **None works** → `ChunkUnavailable` (503) if it happens before streaming starts. Mid-stream, the response is cut short. Wrong bytes are never sent.
-4. **Decrypt + verify:** AES-GCM with the AAD (`reader.py:170-176`), then a plaintext-length check (`reader.py:187-188`).
+4. **Decrypt + verify:** AES-GCM with the AAD (`reader.py:180-186`), then a plaintext-length check (`reader.py:197-198`).
 5. **Reassembly / streaming.**
-   - A window of `inflight_chunks` futures is consumed strictly in order (`reader.py:202-214`).
-   - For a full read, the whole-file SHA-256 is checked when the last chunk arrives. On a mismatch a `file_hash_mismatch` CRITICAL event is logged and the stream is aborted (`reader.py:200-201,215-219`).
+   - A window of `inflight_chunks` futures is consumed strictly in order (`reader.py:212-224`).
+   - For a full read, the whole-file SHA-256 is checked when the last chunk arrives. On a mismatch a `file_hash_mismatch` CRITICAL event is logged and the stream is aborted (`reader.py:210-211,225-229`).
 6. **Repair hand-off.** Marking a replica `missing`/`corrupt` lowers the healthy count, so the next repair scan picks the chunk up (`workers.py:132`).
 
 ### 2.2 Range requests / video seeking
-- **Supported:** a single range `bytes=a-b`, `bytes=a-` and suffix `bytes=-n` → 206 with `Content-Range` (`api.py:258-301`). Only chunks `a//cs … b//cs` are fetched (`reader.py:198-199,220-222`). `Accept-Ranges: bytes` is always sent (`api.py:283-287`). So `<video>` seeking works.
+- **Supported:** a single range `bytes=a-b`, `bytes=a-` and suffix `bytes=-n` → 206 with `Content-Range` (`api.py:260-303`). Only chunks `a//cs … b//cs` are fetched (`reader.py:208-209,230-232`). `Accept-Ranges: bytes` is always sent (`api.py:285-289`). So `<video>` seeking works.
 - **Not supported:**
-  - Multi-range requests are answered **416**. The RFC would allow ignoring the header with a 200 instead (`api.py:258,262-264,289-292`).
+  - Multi-range requests are answered **416**. The RFC would allow ignoring the header with a 200 instead (`api.py:260,264-266,291-294`).
   - `If-Range` is ignored.
-  - Partial reads skip the whole-file hash; the per-chunk AEAD still applies (`reader.py:200`).
+  - Partial reads skip the whole-file hash; the per-chunk AEAD still applies (`reader.py:210`).
 - Downloads are excluded from gzip so `Content-Length`/`Range` stay valid (`security.py:84`).
 
 ### 2.3 Parallelism and memory
-- Per download: 4 chunk fetches in flight (`reader.py:202`, `config.py:32`). Per account: ≤ 4 concurrent calls.
+- Per download: 4 chunk fetches in flight (`reader.py:212`, `config.py:32`). Per account: ≤ 4 concurrent calls.
 - On Drive, each object is fetched with 4 MiB ranged GETs: 3 requests per 8 MiB object (`gdrive.py:234-247`).
 - Memory ≈ 4 × (object + plaintext + the Drive `BytesIO` copy), independent of file size. Measured download peak RSS is in R-003 (same processes as the upload).
 - Measured read throughput: 1.0–1.1 GB/s local (R-003); 47.1 MB/s at 8 simulated 10 MB/s accounts (R-004). **Real Drive: [placeholder].**
@@ -374,12 +374,12 @@ sequenceDiagram
 ```
 
 ### 3.1 Delete file
-1. In one transaction: `committed → deleting` plus the enqueued `delete_file:<id>` job (`system.py:216-224`). It returns 202 (`api.py:332-335`).
+1. In one transaction: `committed → deleting` plus the enqueued `delete_file:<id>` job (`system.py:216-224`). It returns 202 (`api.py:334-337`).
 2. The job purges replicas in parallel (`gc.py:90-104`, `gc.py:42-87`):
    - A remote 404 counts as success (`gc.py:38-39`).
    - On a `removed` account the replica is *abandoned*: the row is dropped and an event recorded (`gc.py:54-63`).
    - On a `revoked` account that raises `AuthError`, the replica is abandoned too (`gc.py:67-77`).
-3. Any other failure keeps the row and raises `RetryLater` (`gc.py:80-81,103-104`). The retry delay is backoff `min(300, 2^attempts)·U(0.5, 1)` s. After 8 attempts the job is `dead` (CRITICAL event) (`jobs.py:121-140`, `db.py:190`). The next GC pass re-enqueues a fresh job for every `deleting` file (`gc.py:139-140`). **A delete never "succeeds" while bytes remain**, but a file with a replica on a long-`unreachable` account cycles through dead jobs until that account comes back or is unlinked.
+3. Any other failure keeps the row and raises `RetryLater` (`gc.py:80-81,103-104`). The retry delay is backoff `min(300, 2^attempts)·U(0.5, 1)` s. After 8 attempts the job is `dead` (CRITICAL event) (`jobs.py:121-140`, `db.py:190`). The next GC pass re-enqueues a fresh job for every `deleting` file (`gc.py:148-149`). **A delete never "succeeds" while bytes remain**, but a file with a replica on a long-`unreachable` account cycles through dead jobs until that account comes back or is unlinked.
 4. When no replica rows remain: chunks are deleted and the file becomes `deleted` (`gc.py:105-110`).
 
 ### 3.2 Rename / move
@@ -400,11 +400,11 @@ sequenceDiagram
 
 ### 3.4 Same-name uploads: versioning or overwrite?
 - **Overwrite, not versioning.**
-  - Without `overwrite` the upload is refused with 409, both at reserve and at commit (`writer.py:120-121,333-334`).
-  - With `overwrite` the old version is superseded and **purged**: `deleting` + a `delete_file` job in the commit transaction (`writer.py:331-343`). There is no history.
-- The `version` counter only increments (`writer.py:122-129`). It feeds the AAD, so an old version's chunk can't be replayed into a new version.
+  - Without `overwrite` the upload is refused with 409, both at reserve and at commit (`writer.py:121-122,354-355`).
+  - With `overwrite` the old version is superseded and **purged**: `deleting` + a `delete_file` job in the commit transaction (`writer.py:352-364`). There is no history.
+- The `version` counter only increments (`writer.py:123-130`). It feeds the AAD, so an old version's chunk can't be replayed into a new version.
 - Two concurrent writers can read the same `max(version)`. **Duplicate version numbers are possible** because there's no unique constraint on `version`. This is harmless (the AAD also binds `file_id`), but `version` is not a reliable sequence.
-- **Concurrent writers:** last commit wins. The partial unique index ensures one `committed` row per path (`db.py:97-105`, `writer.py:346-350`).
+- **Concurrent writers:** last commit wins. The partial unique index ensures one `committed` row per path (`db.py:97-105`, `writer.py:382-386`).
 
 ### 3.5 What if an operation fails halfway?
 - Delete / move / mkdir / folder delete are each one transaction: all or nothing (`system.py:91-101`).
@@ -412,8 +412,8 @@ sequenceDiagram
 - Overwrite: the old version is purged only after the new one committed (same transaction, outbox).
 
 ### 3.6 Fixed: GC-vs-commit lost update (reproduced, then fixed)
-- `gc.scan` reads expired `pending` files, then sets `state='aborted'` through the ORM **without re-checking the state** in the `UPDATE` (`gc.py:129-134`).
-- Suppose a writer's lease has expired but it is still finishing, e.g. `close()` waiting > ~200 s on slow puts, since nothing heartbeats during `close()` (`writer.py:291-292`). If the writer commits **between GC's SELECT and its flush**:
+- **Before the fix** (commit `4a8cd76`), `gc.scan` read expired `pending` files, then set `state='aborted'` through the ORM **without re-checking the state** in the `UPDATE`.
+- Suppose a writer's lease had expired but it was still finishing, e.g. `close()` waiting > ~200 s on slow puts, since nothing heartbeated during `close()` then. If the writer committed **between GC's SELECT and its flush**:
   1. GC overwrites `committed` with `aborted`.
   2. GC enqueues `gc_file`.
   3. `_purge_file`'s guard (`gc.py:93-94`) sees `aborted` and purges a committed file.
@@ -498,7 +498,7 @@ flowchart TD
   L -->|yes| J2["RetryLater → backoff"] --> J
   L -->|no| Z["revoke Google token (best effort) · state = removed · secret_blob = NULL"]
 ```
-Code: `workers.py:415-456` (start), `workers.py:459-495` (job), `workers.py:498-511` (token revoke), `api.py:377-384`.
+Code: `workers.py:415-456` (start), `workers.py:459-495` (job), `workers.py:498-511` (token revoke), `api.py:379-386`.
 - Covered by `tests/test_durability.py::test_unlink_with_evacuation`. No chaos experiment covers unlinking (R-008 has none).
 
 ### 4.5 Safe mode
@@ -506,12 +506,12 @@ Code: `workers.py:415-456` (start), `workers.py:459-495` (job), `workers.py:498-
   - at `WorkerSet.start()` (`workers.py:688-692`)
   - when a health pass finds accounts and **none** is active/full/draining (`workers.py:660-667`)
 - **Leaves:** on the first health pass with ≥ 1 healthy account, or with no accounts at all (`workers.py:668-670`). It runs synchronously at start (`workers.py:691-692`), so normally startup leaves it at once.
-- **Blocked:** new uploads → 503 (`writer.py:112-113`); the repair, scrub, GC, backup, balancer and job threads skip their work (`workers.py:673-686`, `workers.py:330-331,369-370`, `balancer.py:36-37`). `/readyz` returns 503 (`app.py:221-224`).
+- **Blocked:** new uploads → 503 (`writer.py:113-114`); the repair, scrub, GC, backup, balancer and job threads skip their work (`workers.py:673-686`, `workers.py:330-331,369-370`, `balancer.py:36-37`). `/readyz` returns 503 (`app.py:221-224`).
 - **Allowed:** reads, listing, move, mkdir, and delete tombstoning. The purge job waits.
 - **No timeout.** The unused `safe_mode_timeout` setting was deleted on 2026-11-09 instead of being implemented. The exit rule above is already safe:
-  - Writes check their own quorum (`writer.py:134-137`).
+  - Writes check their own quorum (`writer.py:135-138`).
   - Repair ignores unhealthy accounts until `dead_after` (`workers.py:99-107`).
-  - The orphan sweep and backups only touch healthy accounts (`gc.py:177-181`, `backup.py:111-113`).
+  - The orphan sweep and backups only touch healthy accounts (`gc.py:186-190`, `backup.py:111-113`).
 
   A startup timeout would only have delayed writes. The rule is pinned by `tests/test_safe_mode.py`: enter at start; enter again after `unreachable_after_failures` passes with every account failing; leave on the first pass with one healthy account; zero accounts is not safe mode.
 - **When there's no `WorkerSet`** (CLI commands, `workers_enabled=false`), safe mode is never entered (`system.py:82`).
@@ -520,7 +520,7 @@ Code: `workers.py:415-456` (start), `workers.py:459-495` (job), `workers.py:498-
 - **What:** a logical dump of `users, linked_accounts, folders, files, chunks, replicas, jobs, kv` (**not `events`**) (`backup.py:48,68-79`). It's gzipped, then sealed with the KEK, context `meta` (`backup.py:87-89`).
 - **Where:** as `dm-meta-<timestamp>` on **every** active/full account, one after another, keeping the newest 5 per account (`backup.py:105-134,153-159`, `config.py:60`).
 - **How often:** every 900 s, "if changed" (`config.py:59`, `backup.py:137-150`). That's effectively every interval (M16). It also runs immediately at worker start.
-- **Restore:** only into an empty DB (`backup.py:175-176`). It re-queues `running` jobs (`backup.py:182-183`), sets `restored_at`, and pauses the orphan sweep for 7 days (`backup.py:187`, `gc.py:170-176`, `config.py:58`). The CLI path reads a local account dir only (M17).
+- **Restore:** only into an empty DB (`backup.py:175-176`). It re-queues `running` jobs (`backup.py:182-183`), sets `restored_at`, and pauses the orphan sweep for 7 days (`backup.py:187`, `gc.py:179-185`, `config.py:58`). The CLI path reads a local account dir only (M17).
 - **Worst-case data-loss window ("15 minutes"):**
   - The RPO is **900 s + the time the backup run itself takes**, because the next run is scheduled 900 s after the previous one *ends* (`workers.py:679-686`). It is unbounded if no `WorkerSet` is running.
   - **Lost on restore:** files committed after the snapshot. Their wrapped DEKs existed only in the lost DB, so their objects are undecryptable garbage, not "recoverable later".
@@ -538,7 +538,7 @@ The failure domain is one account. "Simultaneous" means within one detection + r
 | RF = 1 | nothing | the loss of any account holding a chunk |
 | RF = 2 | any **1** account lost/revoked/corrupted at a time; bit-flips on one copy; deleted objects on one copy | 2 accounts lost before repair finishes, for chunks with both copies there. With N = 2 a single loss can't be re-protected, because there's no 3rd account to copy to (`workers.py:244,294-303`) |
 | RF = 3 | any **2** at a time (R-008 `account-loss-rf3` [measured, local]) | 3 |
-| RS(k, m) | any **m** shards (`test_ec_file_survives_m_losses_and_repairs`) | m+1. With N = k+m, a loss **can't be repaired** until another account is linked: every surviving account already holds a shard (`workers.py:271-281`). Writes also need all k+m accounts writable (`writer.py:87,134-137`) |
+| RS(k, m) | any **m** shards (`test_ec_file_survives_m_losses_and_repairs`) | m+1. With N = k+m, a loss **can't be repaired** until another account is linked: every surviving account already holds a shard (`workers.py:271-281`). Writes also need all k+m accounts writable (`writer.py:87,135-138`) |
 
 **Never survived, under any scheme:**
 - losing the KEK
@@ -578,16 +578,16 @@ How to read the table:
 - With **3 accounts** only `k+m ≤ 3` works: **RS(1,1)** (= 2 copies), **RS(1,2)** (= 3 copies) and **RS(2,1)** (1.5×, survives 1).
 
 **Is every fragment on a different account?** Yes, enforced twice:
-- The writer excludes accounts already used for the chunk (`writer.py:229-242`).
+- The writer excludes accounts already used for the chunk (`writer.py:251-264`).
 - `UNIQUE(chunk_id, account_id)` makes it a DB invariant for shards as well as replicas (`db.py:148`).
-- Reserve also refuses if fewer than k+m accounts are eligible (`writer.py:134-137`). Covered by `test_ec_needs_k_plus_m_accounts`.
+- Reserve also refuses if fewer than k+m accounts are eligible (`writer.py:135-138`). Covered by `test_ec_needs_k_plus_m_accounts`.
 
 **Uneven fill:**
 - Placement weight is free − reserve, so emptier accounts receive proportionally more (§1.3).
 - An account becomes ineligible when free − 256 MiB < object size (`placement.py:66`). It is marked `full` at the next health check (`workers.py:72-73`), or immediately on Drive's `storageQuotaExceeded` (`replication.py:37-38`, `gdrive.py:80-81`).
 - `free_bytes` is up to 60 s stale, so an account can overshoot until the quota error.
-- The balancer moves replicas from the most- to the least-utilised active account when the spread is > 10 % (`balancer.py:35-97`, `config.py:61-63`). Utilisation uses Drive's total `usage`, Gmail included (`gdrive.py:296`).
-- **Writes are refused** (503 `insufficient_accounts`) when fewer than the quorum are eligible: at reserve (`writer.py:134-137`), or per chunk mid-upload (`writer.py:255-259`).
+- The balancer moves replicas from the most- to the least-utilised active account when the spread is > 10 % (`balancer.py:35-97`, `config.py:61-63`). Utilisation uses Drive's total `usage`, Gmail included (`gdrive.py:313`).
+- **Writes are refused** (503 `insufficient_accounts`) when fewer than the quorum are eligible: at reserve (`writer.py:135-138`), or per chunk mid-upload (`writer.py:277-281`).
 
 **Recommendation for exactly 3 accounts: RF = 2 (the default).**
 1. It survives any single loss.
@@ -610,7 +610,7 @@ How to read the table:
 | Placement | writer-local, then another rack, then same rack/other node | weighted HRW + provider diversity + least-loaded (`placement.py`) | no locality to exploit; the "rack" is the provider |
 | Heartbeats | DataNode → NameNode every 3 s | NameNode polls `health()` every 60 s (`config.py:46`) | inverted direction; the slower cadence suits API quotas |
 | Dead node | ~10.5 min without heartbeats | `unreachable`/`revoked` + 600 s (`config.py:47`) | similar grace; OAuth revocation is a new failure kind |
-| Block reports | DataNodes send block lists (default every 6 h) | orphan sweep lists every account every 300 s (`gc.py:162-218`) | used for **GC only**. It never adds knowledge (the DB is authoritative) |
+| Block reports | DataNodes send block lists (default every 6 h) | orphan sweep lists every account every 300 s (`gc.py:171-227`) | used for **GC only**. It never adds knowledge (the DB is authoritative) |
 | Re-replication | priority queues by replica deficit | one scan ordered by healthy count (`workers.py:125-145`) | same idea, flattened |
 | Balancer | moves blocks above a utilisation threshold (default 10 %) | copy-then-delete, threshold 10 % (`balancer.py`, `config.py:62`) | same; per user, one high→low pair per pass |
 | Block scanner | DataNode re-reads local blocks (~3-week period) | scrubber, 1 MiB/s budget (`workers.py:367-411`) | same, but every byte crosses the network |
@@ -618,14 +618,14 @@ How to read the table:
 | fsimage/edits checkpoint | Secondary/Checkpoint NameNode | encrypted logical snapshots on the accounts (`backup.py`) | an off-site cold copy, not a checkpoint helper |
 | Standby NameNode / HA | QJM + ZKFC automatic failover | **none** | single process, single DB (§10.4) |
 | Safe mode | until a threshold of blocks is reported | until ≥ 1 account answers (`workers.py:660-671`) | much weaker gate (M8) |
-| Leases | single writer per file, lease recovery | immutable versions, last commit wins (`writer.py:304-350`) | no in-place writes, so no lease recovery needed |
+| Leases | single writer per file, lease recovery | immutable versions, last commit wins (`writer.py:325-386`) | no in-place writes, so no lease recovery needed |
 | Erasure coding | RS-6-3 striped across DataNodes | optional RS(k,m) per chunk object (`erasure.py`) | same math; repair reads k shards (k× amplification) |
 
 **What HDFS has that DriveMesh lacks, and whether it makes sense here:**
 - **NameNode HA:** yes, it would make sense. The cheap version is managed Postgres HA + a stateless app + leader election for periodic tasks (§10.4).
 - **Data-local compute** (MapReduce/Spark short-circuit reads): no. You can't run code next to Drive.
 - **Append / hflush:** not worth it. Objects are immutable and a new version is cheap; appends would need chunk-level versioning.
-- **Snapshots:** yes, and cheap. Superseded versions could be kept by refcounting chunks instead of purging (`writer.py:331-343`).
+- **Snapshots:** yes, and cheap. Superseded versions could be kept by refcounting chunks instead of purging (`writer.py:352-364`).
 - **Federation:** not needed at personal scale.
 - **Rack awareness via a topology script:** partly there as provider diversity.
 - **Quotas per directory:** missing. No per-user storage quota exists (07-threat-model T12).
@@ -646,9 +646,9 @@ How to read the table:
 |---|---|---|
 | **One Drive account** | Ciphertext objects `dm-<uuid>` with sizes and `createdTime` in one `DriveMesh` folder, tagged `appProperties.dm=1` (`gdrive.py:208`). Encrypted `dm-meta-*` snapshots. Upload bursts reveal roughly which objects form one file, and the last smaller object approximates its size. **No file names, no plaintext** | Delete or corrupt objects: detected on read or scrub, repaired if RF ≥ 2. Can't forge: no DEK, and the AAD binds position |
 | **All Drive accounts** | Everything above, plus: identical ciphertext across accounts reveals which objects are replicas of one chunk, and so the placement | Destroy all data (availability). **Roll back the namespace** by deleting newer `dm-meta-*` snapshots so a restore picks an older one (`backup.py:162-166`). It can't forge one (KEK seal) |
-| **The metadata DB** | **Plaintext namespace:** file and folder names, sizes, timestamps, plaintext SHA-256 (enables "do you store this known file?" checks), account emails, the event log with paths (`system.py:223`, `writer.py:351-358`), scrypt password hashes. Wrapped DEKs and sealed tokens are useless without the KEK | Delete rows (data becomes unreachable). Tampering with chunk rows, versions or `chunk_count` is caught by the AAD/STREAM `last` flag (`reader.py:170-176`). **One gap:** lowering `files.size` *within* the final chunk truncates output without an error, because the hash covers whole chunks (`reader.py:215-222`) |
+| **The metadata DB** | **Plaintext namespace:** file and folder names, sizes, timestamps, plaintext SHA-256 (enables "do you store this known file?" checks), account emails, the event log with paths (`system.py:223`, `writer.py:387-394`), scrypt password hashes. Wrapped DEKs and sealed tokens are useless without the KEK | Delete rows (data becomes unreachable). Tampering with chunk rows, versions or `chunk_count` is caught by the AAD/STREAM `last` flag (`reader.py:180-186`). **One gap:** lowering `files.size` *within* the final chunk truncates output without an error, because the hash covers whole chunks (`reader.py:225-232`) |
 | **The master key (KEK) alone** | nothing by itself | With any one account it can fetch a snapshot → unseal it → get the DB, all wrapped DEKs and **all OAuth refresh tokens** (`accounts.py:104-107`) → read every account → decrypt everything. **KEK + any one account = total compromise** |
-| **The server** (env + process) | KEK, DB credentials, OAuth client secret, session secret, and **plaintext of every file in transit**, since encryption happens there (`api.py:229-241`) | everything |
+| **The server** (env + process) | KEK, DB credentials, OAuth client secret, session secret, and **plaintext of every file in transit**, since encryption happens there (`api.py:229-243`) | everything |
 
 **What Google sees:**
 - object count, sizes, creation and modification times
@@ -704,9 +704,9 @@ What they mean in practice [computed]:
 |---|---|---|
 | 100 files | nothing | — |
 | 10k files | **folder listing**: `/fs` returns every file in a folder with no pagination and computes health over all their chunks (`namespace.py:129-145`, `api.py:95-132,135-149`); the dashboard polls status every 10 s and the status page every 5 s (`dashboard.js:56`, `status.js:37`) | `cluster_status` runs `under_replicated()` **without a limit** on every poll (`workers.py:592`) |
-| 1M chunks | **the backup task** loads every row of 8 tables into Python and serializes them every 15 min just to compare a hash (`backup.py:68-79,137-150`); **the orphan sweep** loads all replica ids every 5 min and lists every object on every account (`gc.py:185-193`). Repair and fsck are fine on Postgres (R-007) | full-table work on fixed short timers |
+| 1M chunks | **the backup task** loads every row of 8 tables into Python and serializes them every 15 min just to compare a hash (`backup.py:68-79,137-150`); **the orphan sweep** loads all replica ids every 5 min and lists every object on every account (`gc.py:194-202`). Repair and fsck are fine on Postgres (R-007) | full-table work on fixed short timers |
 | 10 accounts | fine. Health is 10 serial probes per minute | `workers.py:50-91` |
-| 100 accounts | **serial loops:** health, backup puts and orphan listings run one account after another, and one slow account (60 s HTTP timeout × 6 attempts) stalls the pass. **Per-file parallelism doesn't grow with N:** ≤ inflight × RF = 8 puts per upload (`writer.py:107`). The shared I/O pool is 32 threads (`system.py:66`). Postgres pool is 10 + 10 connections (`db.py:244`) | fixed pools |
+| 100 accounts | **serial loops:** health, backup puts and orphan listings run one account after another, and one slow account (60 s HTTP timeout × 6 attempts) stalls the pass. **Per-file parallelism doesn't grow with N:** ≤ inflight × RF = 8 puts per upload (`writer.py:108`). The shared I/O pool is 32 threads (`system.py:66`). Postgres pool is 10 + 10 connections (`db.py:244`) | fixed pools |
 
 **What breaks first in practice:**
 - With lots of data: the 15-min full dump (memory/time) and the 5-min full orphan listing.
@@ -741,13 +741,13 @@ Order taken from `README.md` "Quick start":
 
 Every CLI command runs Alembic migrations first (`cli.py:35-45`), and so does the web app (`app.py:88-89`).
 
-**Config that matters** (env `DRIVEMESH_<NAME>`, `config.py:16-85`):
+**Config that matters** (env `DRIVEMESH_<NAME>`, `config.py:16-84`):
 
 | Setting | Default | Changes |
 |---|---|---|
 | `DATABASE_URL` | `sqlite:///./data/drivemesh.db` | metadata store; `postgres://…` is normalised to psycopg 3 (`db.py:217-222`) |
 | `MASTER_KEYS`, `ACTIVE_KEY_ID` | — | key ring (§7) |
-| `CHUNK_SIZE` | 8 MiB | new files only (stored per file, `writer.py:152`) |
+| `CHUNK_SIZE` | 8 MiB | new files only (stored per file, `writer.py:153`) |
 | `DEFAULT_RF`, `MIN_WRITE_REPLICAS` | 2, = RF | durability / write availability |
 | `INFLIGHT_CHUNKS` | 4 | per-transfer parallelism and memory |
 | `MAX_UPLOAD_BYTES` | 10 GiB | 413 limit |
@@ -761,7 +761,7 @@ Every CLI command runs Alembic migrations first (`cli.py:35-45`), and so does th
 | `GC_INTERVAL`, `PENDING_LEASE_SECONDS`, `PENDING_REPLICA_GRACE_SECONDS`, `ORPHAN_GRACE_SECONDS` | 300, 300, 3600, 86400 | cleanup timing |
 | `BACKUP_INTERVAL`, `BACKUP_KEEP`, `RESTORE_QUIET_SECONDS` | 900, 5, 7 days | RPO, snapshot retention |
 | `BALANCER_INTERVAL`, `BALANCER_THRESHOLD`, `BALANCER_BATCH` | 600, 0.10, 50 | rebalancing |
-| `SESSION_SECRET`, `SECURE_COOKIES`, `ALLOW_LOCAL_BACKENDS`, `PUBLIC_BASE_URL`, `METRICS_TOKEN` | — | web security. `ENV=prod` refuses unsafe combinations (`config.py:87-104`, `app.py:92-93`) |
+| `SESSION_SECRET`, `SECURE_COOKIES`, `ALLOW_LOCAL_BACKENDS`, `PUBLIC_BASE_URL`, `METRICS_TOKEN` | — | web security. `ENV=prod` refuses unsafe combinations (`config.py:86-103`, `app.py:92-93`) |
 | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | — | enables Drive linking (`oauth.py:37-38`) |
 
 ### 9.2 Restart and sleep
@@ -787,13 +787,13 @@ Every CLI command runs Alembic migrations first (`cli.py:35-45`), and so does th
 ## 10. Interview questions, answered from the code
 
 **10.1 Why a two-phase write? What breaks without it?**
-A streamed file doesn't exist until its last byte arrives, but its chunks are uploaded long before that. Phase 1 makes a `pending` row that nobody can read (`writer.py:144-162`). Phase 2 atomically checks that all `0..n-1` chunks have quorum copies, then flips the row to `committed`, superseding the old version in the same transaction (`writer.py:304-345`). Without it, a crash or a failed account mid-upload would publish a torn or under-replicated file, or wipe the old version before the new one was safe. The leftovers are found and cleaned because they're `pending` with an expired lease (`gc.py:129-135`).
+A streamed file doesn't exist until its last byte arrives, but its chunks are uploaded long before that. Phase 1 makes a `pending` row that nobody can read (`writer.py:145-163`). Phase 2 atomically checks that all `0..n-1` chunks have quorum copies, then flips the row to `committed`, superseding the old version in the same transaction (`writer.py:325-381`). Without it, a crash or a failed account mid-upload would publish a torn or under-replicated file, or wipe the old version before the new one was safe. The leftovers are found and cleaned because they're `pending` with an expired lease (`gc.py:128-142`).
 
 **10.2 Why rendezvous hashing over consistent hashing or round-robin?**
 Round-robin ignores free space and remaps everything when the account list changes; the legacy list-index bug W-02 was exactly that. Weighted HRW gives exact, continuous weights from free bytes (`placement.py:44-48`), with no ring or vnode tuning. Removing an account moves only the keys whose top pick was that account. It also hands back a full fallback order for failed puts (`replication.py:59-65`). At ≤ 100 accounts the O(N) cost per chunk doesn't matter. The measured top-pick shares match the weights to within 0.4 points (§1.3).
 
 **10.3 How do you detect a chunk that was swapped or reordered?**
-Each chunk is AES-GCM-encrypted with associated data `dm1|file_id|version|idx|last` (`crypto.py:123-124`). An object moved to another index, file or version, or a truncated file whose new last chunk lacks `last=1`, fails authentication. The reader marks that replica `corrupt` and tries the others (`reader.py:175-186`). Before that, the stored object's SHA-256 is compared against the replica row, which catches plain corruption without the key (`reader.py:132-134`). Full reads also check the whole-file hash (`reader.py:215-219`). R-008 `corrupt-chunks`: 0 wrong bytes in 10 trials.
+Each chunk is AES-GCM-encrypted with associated data `dm1|file_id|version|idx|last` (`crypto.py:123-124`). An object moved to another index, file or version, or a truncated file whose new last chunk lacks `last=1`, fails authentication. The reader marks that replica `corrupt` and tries the others (`reader.py:185-196`). Before that, the stored object's SHA-256 is compared against the replica row, which catches plain corruption without the key (`reader.py:142-144`). Full reads also check the whole-file hash (`reader.py:225-229`). R-008 `corrupt-chunks`: 0 wrong bytes in 10 trials.
 
 **10.4 What's the single point of failure, and how would you remove it?**
 There are three: the metadata DB, the single process (API + workers, `app.py:103-119`), and the KEK. Today the mitigation is encrypted snapshots on every account (RPO ≥ 15 min, §4.6). To remove them:
@@ -809,9 +809,9 @@ Fernet is AES-128-CBC + HMAC with base64 encoding: **+33.34 %** stored bytes (R-
 - Replicas partitioned by account.
 - Paginated listings.
 - Rely on Postgres point-in-time recovery instead of the 15-min full JSON dump (`backup.py:68-79`).
-- Reconcile per account with Drive's *changes* feed (cursor-based) instead of full listings every 5 min (`gc.py:185-193`).
+- Reconcile per account with Drive's *changes* feed (cursor-based) instead of full listings every 5 min (`gc.py:194-202`).
 - Run health checks and backups in parallel, not serially (`workers.py:50`, `backup.py:115`).
-- Raise per-file parallelism with N (`writer.py:107`).
+- Raise per-file parallelism with N (`writer.py:108`).
 - Run workers as several processes sharing the lease-based job table.
 
 **10.7 What would you change for S3 instead of Drive?**
@@ -916,7 +916,7 @@ IDs are `String(32)` = `uuid4().hex` (`db.py:32-33`). Timestamps are naive UTC (
 | chunk_size | INTEGER | NN |
 | chunk_count | INTEGER | set at commit |
 | scheme | VARCHAR(16) | NN, default `replica` |
-| rf | INTEGER | NN (1 for EC, `writer.py:154`) |
+| rf | INTEGER | NN (1 for EC, `writer.py:155`) |
 | ec_k, ec_m | INTEGER | |
 | wrapped_dek | BLOB | NN |
 | kek_id | VARCHAR(64) | NN |
@@ -1050,15 +1050,15 @@ erDiagram
 | an external account linked once per user | **DB** unique | `db.py:59` |
 | one queued/running job per dedupe key | **DB** unique + a Python pre-check | `db.py:186`, `jobs.py:59-62` |
 | referential integrity, cascades | **DB** FKs (SQLite needs `PRAGMA foreign_keys=ON`) | `db.py:238` |
-| **committed file has chunks 0..n-1, each with ≥ quorum `ok` replicas** | **Python, at commit only**; audited afterwards by fsck | `writer.py:314-330`, `fsck.py:35-89` |
-| a name isn't both a file and a folder | Python | `writer.py:118-119`, `namespace.py:89-90,121-122,166-167` |
+| **committed file has chunks 0..n-1, each with ≥ quorum `ok` replicas** | **Python, at commit only**; audited afterwards by fsck | `writer.py:335-351`, `fsck.py:35-89` |
+| a name isn't both a file and a folder | Python | `writer.py:119-120`, `namespace.py:89-90,121-122,166-167` |
 | exactly one root folder per user | Python | `namespace.py:52-60` |
 | enum values (states, provider, scheme) | Python (no CHECK) | `db.py:53,91,142,177` |
 | RF 1–5, EC parameter ranges | Python | `writer.py:90-92`, `erasure.py:29-31` |
-| a replica's account belongs to the file's owner | Python (placement uses the user's candidates); **not enforced** by the DB | `writer.py:130`, `accounts.py:208-215` |
+| a replica's account belongs to the file's owner | Python (placement uses the user's candidates); **not enforced** by the DB | `writer.py:131`, `accounts.py:208-215` |
 | `remote_id` set ⇔ `state='ok'` | Python | `replication.py:102-105` |
-| replica state only leaves `ok` once (no resurrection) | Python | `reader.py:104-105`, `workers.py:211` |
-| version strictly increasing per path | Python, **not guaranteed** under concurrency | `writer.py:122-129` |
+| replica state only leaves `ok` once (no resurrection) | Python | `reader.py:114-115`, `workers.py:211` |
+| version strictly increasing per path | Python, **not guaranteed** under concurrency | `writer.py:123-130` |
 | a file isn't purged while live | Python guard | `gc.py:93-94` (but see §3.6) |
 | the cascade never drops a replica row whose object still exists | Python ordering: replicas are purged before chunks are deleted; on failure `RetryLater` is raised first | `gc.py:102-106` |
 
@@ -1092,7 +1092,7 @@ sequenceDiagram
 **Download: 2 transactions, read-only**
 - T1: `SELECT folders` (path walk) + `SELECT files` (live file).
 - T2: `SELECT chunks ORDER BY idx` + `SELECT replicas ⋈ chunks ⋈ linked_accounts WHERE file_id=? AND state='ok'`.
-- There are no writes unless a replica turns out bad: then `UPDATE replicas SET state` + `INSERT events` (`reader.py:101-113`).
+- There are no writes unless a replica turns out bad: then `UPDATE replicas SET state` + `INSERT events` (`reader.py:111-123`).
 - Reads don't update `verified_at`.
 
 **Delete: 2 synchronous commits + the job**
@@ -1128,7 +1128,7 @@ Generated from the real queries (`literal_binds`); plans are SQLite `EXPLAIN QUE
 SELECT files.* FROM files
 WHERE files.user_id = ? AND files.folder_id = ? AND files.name = ? AND files.state = 'committed';
 
--- Download 2: chunks (reader.py:67-69)  → uq_chunk_file_idx (sqlite_autoindex_chunks_2)
+-- Download 2: chunks (reader.py:68-70)  → uq_chunk_file_idx (sqlite_autoindex_chunks_2)
 SELECT chunks.* FROM chunks WHERE chunks.file_id = ? ORDER BY chunks.idx;
 
 -- Download 3: ok replicas, in batches of 500 chunk ids (reader.py, _load_chunks)
@@ -1174,12 +1174,12 @@ Note: the repair SQL repeats the correlated subquery three times (SELECT, WHERE,
 | Topic | SQLite (dev/tests) | Postgres (deployed) | Consequence |
 |---|---|---|---|
 | Writers | one writer at a time (WAL lets readers proceed), `busy_timeout` 30 s, `synchronous=NORMAL` (`db.py:232-241`) | row-level locks, many concurrent writers; pool 10+10 (`db.py:244`) | each chunk costs 1 + 2·RF tiny write transactions, so busy SQLite serialises them; `database is locked` after 30 s |
-| `SELECT … FOR UPDATE` in commit | **ignored** (not emitted, confirmed in the trace) | locks the file row (`writer.py:311`) | on SQLite the commit check-then-flip relies on the global write lock |
+| `SELECT … FOR UPDATE` in commit | **ignored** (not emitted, confirmed in the trace) | locks the file row (`writer.py:332`) | on SQLite the commit check-then-flip relies on the global write lock |
 | Transaction start | pysqlite starts a transaction only at the first INSERT/UPDATE/DELETE, so the commit's validation SELECTs run before `BEGIN` | `BEGIN` at the first statement, READ COMMITTED | on SQLite the commit's checks and its flip aren't one snapshot. The validated state can change in between. Both DBs are exposed to the §3.6 lost update, because neither re-checks state in the `UPDATE` |
-| Concurrent same-path commits | the second writer waits for the lock, then hits the unique index | the second waits on the index entry until the first commits, then raises `IntegrityError` | both end at `writer.py:346-350` (retry once with overwrite, else 409) |
+| Concurrent same-path commits | the second writer waits for the lock, then hits the unique index | the second waits on the index entry until the first commits, then raises `IntegrityError` | both end at `writer.py:382-386` (retry once with overwrite, else 409) |
 | Partial unique index | supported (`sqlite_where`) | supported (`postgresql_where`) | same invariant on both (`db.py:103-104`) |
 | Statistics | **none unless `ANALYZE` runs, and nothing runs it** | autovacuum analyzes automatically | the **quadratic plan** (R-007: 68 s at 20k chunks, before the fix) came from SQLite choosing `ix_replicas_state_verified` without statistics. It was fixed for the repair scan with the `(chunk_id, state)` index + a plan test, the **download** query had the same trap (R-014: 3.9 → 19.6 ms at 40k replicas without stats). **Fixed 2026-11-09** by looking up `chunk_id IN (…)`, which uses the composite index regardless of stats, and pinned by a plan test |
-| Scale | 1M chunks: repair scan 26.4 s, fsck 16.5 s; a bigger page cache didn't help (R-007, R-009) | 5.04 s / 7.87 s (R-007) | production must be Postgres; `ENV=prod` refuses SQLite (`config.py:102-103`) |
+| Scale | 1M chunks: repair scan 26.4 s, fsck 16.5 s; a bigger page cache didn't help (R-007, R-009) | 5.04 s / 7.87 s (R-007) | production must be Postgres; `ENV=prod` refuses SQLite (`config.py:101-102`) |
 | `NULLS FIRST` (scrub order) | supported (3.30+) | supported | portable (`workers.py:382`) |
 | FKs / cascade | only with `PRAGMA foreign_keys=ON` (set on every connection, `db.py:238`) | always | same behaviour |
 | Plan regression tests (repair + download) | run | **skipped** | Postgres plans aren't pinned by tests |
