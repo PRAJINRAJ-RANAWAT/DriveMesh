@@ -3,7 +3,9 @@
 Invariants enforced by the database itself:
   * one committed version per path        -> ux_files_live_path (partial unique index)
   * no two replicas of a chunk per account -> uq_replica_chunk_account
-  * an external account linked once        -> uq_account_external
+  * an external account (e.g. one Gmail) is linked by at most one DriveMesh user at a time
+                                           -> ux_accounts_external_live (partial unique index)
+  * one DriveMesh user per Google identity -> users.google_sub UNIQUE
 """
 
 from __future__ import annotations
@@ -13,6 +15,7 @@ from datetime import UTC, datetime
 
 from sqlalchemy import (
     BigInteger,
+    Boolean,
     DateTime,
     ForeignKey,
     Index,
@@ -42,12 +45,56 @@ class Base(DeclarativeBase):
     pass
 
 
+NO_PASSWORD = "!"  # noqa: S105 - not a password: the password_hash of accounts that sign in with Google only (never verifies)
+
+
 class User(Base):
     __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("google_sub", name="uq_users_google_sub"),)
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     username: Mapped[str] = mapped_column(String(255), unique=True)
     password_hash: Mapped[str] = mapped_column(Text)
+    # Google identity used to sign in ("sub" claim of the verified ID token).
+    google_sub: Mapped[str | None] = mapped_column(String(255))
+    email: Mapped[str | None] = mapped_column(String(320))
+    # Operators (CLI-created / bootstrap owner) may link server-local folders and read
+    # global metrics; self-service Google sign-ups may not.
+    is_admin: Mapped[bool] = mapped_column(Boolean, default=False, server_default=text("false"))
+    # "Sign out everywhere": sessions and JWTs issued before this instant are invalid.
+    tokens_valid_after: Mapped[datetime | None] = mapped_column(DateTime)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
+class UserSession(Base):
+    """Server-side record of a browser session. The cookie carries a random id; only its
+    SHA-256 is stored, so a DB leak does not reveal live session ids."""
+
+    __tablename__ = "sessions"
+    id_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
+    user_agent: Mapped[str | None] = mapped_column(String(255))
+    ip: Mapped[str | None] = mapped_column(String(64))
+
+
+class RefreshToken(Base):
+    """Opaque, rotating refresh tokens for API clients (only the SHA-256 is stored).
+
+    Each refresh consumes the token and issues a new one in the same family; presenting a
+    consumed token again (reuse = likely theft) revokes the whole family."""
+
+    __tablename__ = "refresh_tokens"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True)
+    family_id: Mapped[str] = mapped_column(String(32), index=True)
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+    expires_at: Mapped[datetime] = mapped_column(DateTime)
+    used_at: Mapped[datetime | None] = mapped_column(DateTime)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime)
 
 
 ACCOUNT_STATES = ("active", "full", "unreachable", "revoked", "draining", "removed")
@@ -56,7 +103,16 @@ ACCOUNT_STATES = ("active", "full", "unreachable", "revoked", "draining", "remov
 class LinkedAccount(Base):
     __tablename__ = "linked_accounts"
     __table_args__ = (
-        UniqueConstraint("user_id", "provider", "external_id", name="uq_account_external"),
+        # Global, not per user: two DriveMesh users sharing one Gmail would share its app
+        # folder, and one unlinking would revoke Google's grant for the other.
+        Index(
+            "ux_accounts_external_live",
+            "provider",
+            "external_id",
+            unique=True,
+            sqlite_where=text("state != 'removed'"),
+            postgresql_where=text("state != 'removed'"),
+        ),
     )
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
