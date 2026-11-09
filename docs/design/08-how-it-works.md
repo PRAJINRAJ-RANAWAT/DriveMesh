@@ -85,7 +85,7 @@ Number labels used throughout:
 | M17 | 02 §6 / ADR-015: "`drivemesh restore` pulls the snapshot from **any account**" | the CLI restores only from a **local directory** (`restore_from_local_dir`). `restore_from_backend` exists but has no caller (no CLI or UI path for Drive) | `cli.py:250-256`, `backup.py:193-198` |
 | M18 | 02 §4: "max file size 1 TiB by design" | enforced default **10 GiB**: on the declared `Content-Length` and while streaming | `config.py:33`, `api.py:191-194`, `writer.py:171-174` |
 | M19 | 02 §6: a deleted account is detected by "404 on the app folder" | **was** false: the folder id is cached from `config_json`, so `health()` never checked it. **Fixed 2026-11-09:** `health()` now fetches the folder by id. 404 or `trashed` → `NotFoundError` → after 3 probes `unreachable` → repair (`gdrive.py`, `_check_folder`; `tests/test_gdrive.py`) | `gdrive.py:182-184`, `oauth.py:110-117` |
-| M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **235 tests**, 91 % (R-011, after the 2026-11-09 fixes); tested to **5 GB** (R-003) | results.md |
+| M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **249 tests**, 91 % (R-011, 2026-11-09); tested to **5 GB** (R-003) | results.md |
 | M21 | 06 Q2: after an account fails, "reads skip it immediately" | `revoked` replicas are skipped. `unreachable` replicas are still tried, **last** | `reader.py:101,151-152` |
 | M22 | 03 §13: metrics labelled `{account}` | the labels are `{provider}` | `metrics.py:9-14` |
 | M23 | 03 §10: "if the refresh token changes, the new one is persisted" | secrets are written only at link time. Refreshed access tokens live only in memory | `accounts.py:152-153` (only caller of `write_secret`) |
@@ -669,6 +669,48 @@ It does **not** see names or contents. Names are random UUIDs (`db.py:32-33,172-
   DEKs are not rotated (no re-encryption). Old snapshots stay sealed with the old key until pruned (`backup.py:153-159`).
 - **If lost:** every DEK, token and snapshot is undecryptable. **Total, permanent loss** of all data, with no recovery path (07-threat-model, "Key-loss policy").
 
+### 7.1 Accounts, sign-in and sessions (added 2026-11-09)
+
+```mermaid
+sequenceDiagram
+  participant B as Browser
+  participant D as DriveMesh
+  participant G as Google
+  B->>D: GET /auth/google
+  D-->>B: 302 to Google (scopes openid email, state + PKCE in the session)
+  B->>G: the person signs in (password, 2FA) and approves
+  G-->>B: 302 /accounts/callback/google?code&state
+  B->>D: callback (state must match)
+  D->>G: exchange code + PKCE verifier, verify ID token (sub, email_verified)
+  D->>D: find user by google_sub, or create one (open sign-up), INSERT sessions row
+  D-->>B: Set-Cookie (HttpOnly, signed, random session id), 303 /app or /accounts?welcome=1
+  Note over B,G: Linking storage = same callback, purpose "link": drive.file + offline, needs a signed-in user
+```
+
+- **Sign-up / sign-in:** "Continue with Google" is OpenID Connect with `openid email` only (`oauth.py`, `sign_in_with_google`, `_finish_sign_in`).
+  - Google authenticates the person; DriveMesh stores no password for them (`password_hash = "!"`, which never verifies).
+  - The DriveMesh user is keyed by Google's stable `sub` (`users.google_sub`, unique), **never by email**, so a changed or recycled address can't take over an account (`system.py`, `get_or_create_google_user`).
+  - Unverified emails are refused.
+- **Linking a Gmail for storage** is a separate consent (`drive.file`, offline). It works only for someone who can sign in to that Gmail, so a stranger cannot attach an innocent person's Gmail.
+- **One Gmail → one DriveMesh user (global):** partial unique index `ux_accounts_external_live (provider, external_id) WHERE state != 'removed'` plus a clear 409 (`db.py`, `accounts.py`, `link`). Sharing would have shared one app folder, and one user's unlink revokes Google's grant for both.
+- **Browser sessions are server-side** (`web/auth.py`):
+  - The signed HttpOnly cookie carries a random id; the `sessions` table stores only its SHA-256, with expiry (`session_days`, 14) and revocation.
+  - Logout revokes the row, so a copied cookie stops working. "Sign out everywhere" (`POST /api/v1/auth/logout-all`) revokes every session and token (`users.tokens_valid_after`).
+- **API clients** use JWTs instead of cookies:
+  - `POST /api/v1/auth/tokens` (signed-in browser + CSRF) returns a **JWT access token**: HS256, 15 min, `iss`/`aud`/`typ` checked, `alg=none` refused.
+  - It also returns an **opaque refresh token** (30 days, stored as SHA-256). `POST …/tokens/refresh` rotates it; **replaying a used refresh token revokes the whole chain** (theft detection). `POST …/tokens/revoke` revokes a chain.
+  - Bearer requests are exempt from CSRF, because browsers never attach them automatically.
+  - Why not JWT in the browser: a script-readable token is stealable by XSS, and a JWT can't be revoked early without the server-side table anyway.
+- **Open sign-up guards:**
+  - Self-service users are never `is_admin`: they can't link server-local folders (that would expose the server's disk) and can't read the global `/metrics`.
+  - `cluster_status` is scoped to the caller: their replicas, files and events only; no global job queue (`workers.py`, `cluster_status(admin=False)`).
+  - Operators are users created by the CLI or the owner bootstrap; migration 0003 marks all existing users as admins.
+- **Tests:** `tests/test_auth.py`, 13 tests: sign-up, re-sign-in, state and unverified-email rejection, no password login for Google-only users, the one-Gmail rule, cookie replay after logout, expiry, sign-out-everywhere, bearer without CSRF, forged/expired/`alg=none`/wrong-`typ`/wrong-`aud` JWTs, refresh rotation and reuse revocation, status scoping.
+- **Residual risks:**
+  - No per-user storage or bandwidth quota yet (users bring their own Gmail storage, but share the server's bandwidth and DB).
+  - Google "Testing" mode only lets listed test users sign in at all. Going public needs Google's app verification.
+  - The "Continue with Google" button is text-only; Google's branding guidelines expect their logo for a verified app.
+
 ---
 
 ## 8. Performance and limits
@@ -853,7 +895,7 @@ Result: 0.033 s at 20k chunks; fsck at 1M chunks on Postgres went from 291 s to 
 
 Sources:
 - models `drivemesh/db.py`
-- migrations `drivemesh/migrations/versions/0001_initial_schema.py` (rev `d29bc289b785`) and **latest** `0002_replica_chunk_state_index.py` (rev `d5a37403a62e`, `0002…py:12-13`)
+- migrations `0001_initial_schema.py` (rev `d29bc289b785`), `0002_replica_chunk_state_index.py` (rev `d5a37403a62e`) and **latest** `0003_auth_sessions_tokens.py` (rev `263c772823d8`: users' Google identity, `sessions`, `refresh_tokens`, global account uniqueness)
 
 Verified: `alembic.autogenerate.compare_metadata` against a freshly migrated DB reports **no difference** between the models and the migrations (R-014).
 
@@ -861,14 +903,22 @@ Verified: `alembic.autogenerate.compare_metadata` against a freshly migrated DB 
 
 IDs are `String(32)` = `uuid4().hex` (`db.py:32-33`). Timestamps are naive UTC (`db.py:36-38`). **There are no CHECK constraints anywhere** (M1). "NN" = NOT NULL.
 
-**`users`** (`db.py:45-50`, `0001…py:64-72`)
+**`users`** (`db.py`, `0001…py:64-72`, `0003_auth_sessions_tokens.py`)
 
 | Column | Type | Constraints |
 |---|---|---|
 | id | VARCHAR(32) | **PK** |
-| username | VARCHAR(255) | NN, **UNIQUE** |
-| password_hash | TEXT | NN (scrypt, `crypto.py:146-149`) |
+| username | VARCHAR(255) | NN, **UNIQUE** (email for Google sign-ups) |
+| password_hash | TEXT | NN (scrypt, `crypto.py:146-149`; `!` = Google-only, never verifies) |
+| google_sub | VARCHAR(255) | **UNIQUE `uq_users_google_sub`** (0003) |
+| email | VARCHAR(320) | (0003) |
+| is_admin | BOOLEAN | NN, default false; existing users set true by 0003 |
+| tokens_valid_after | DATETIME | "sign out everywhere" cutoff (0003) |
 | created_at | DATETIME | NN |
+
+**`sessions`** (0003): `id_hash` VARCHAR(64) **PK** (SHA-256 of the cookie's random id); `user_id` NN **FK → users.id**, index; `created_at`, `last_seen_at`, `expires_at` NN; `revoked_at`; `user_agent`; `ip`.
+
+**`refresh_tokens`** (0003): `id` **PK**; `token_hash` VARCHAR(64) NN **UNIQUE**; `family_id` NN, index; `user_id` NN **FK → users.id**, index; `created_at`, `expires_at` NN; `used_at`; `revoked_at`.
 
 **`linked_accounts`** (`db.py:56-78`, `0001…py:95-123`)
 
@@ -888,7 +938,7 @@ IDs are `String(32)` = `uuid4().hex` (`db.py:32-33`). Timestamps are naive UTC (
 | consecutive_failures | INTEGER | NN, default 0 |
 | last_error | TEXT | |
 | created_at | DATETIME | NN |
-| | | **UNIQUE `uq_account_external` (user_id, provider, external_id)** |
+| | | **partial UNIQUE `ux_accounts_external_live` (provider, external_id) WHERE state != 'removed'**. Migration 0003 replaced the per-user `uq_account_external (user_id, provider, external_id)`: one Gmail now belongs to at most one DriveMesh user |
 
 **`folders`** (`db.py:81-88`, `0001…py:73-93`)
 
@@ -966,6 +1016,8 @@ IDs are `String(32)` = `uuid4().hex` (`db.py:32-33`). Timestamps are naive UTC (
 ```mermaid
 erDiagram
   users ||--o{ linked_accounts : "owns (user_id)"
+  users ||--o{ sessions : "signed in (user_id)"
+  users ||--o{ refresh_tokens : "API tokens (user_id)"
   users ||--o{ folders : "owns (user_id)"
   users ||--o{ files : "owns (user_id)"
   folders ||--o{ folders : "parent_id"
@@ -1047,7 +1099,9 @@ erDiagram
 | no two replicas *or EC shards* of a chunk on one account | **DB** unique | `db.py:148` |
 | no duplicate chunk index in a file | **DB** unique | `db.py:132` |
 | unique folder name under a parent | **DB** unique, but **not for roots**: `parent_id` NULL values are distinct in both SQLite and Postgres | `db.py:83` |
-| an external account linked once per user | **DB** unique | `db.py:59` |
+| an external account (e.g. one Gmail) is linked by at most one DriveMesh user at a time | **DB** partial unique `ux_accounts_external_live` + a 409 in `accounts.link` | `db.py`, `accounts.py` |
+| one DriveMesh user per Google identity | **DB** unique `uq_users_google_sub` | `db.py` |
+| a refresh token is used at most once | Python, with a conditional `UPDATE … WHERE used_at IS NULL` (reuse → the chain is revoked) | `web/auth.py`, `refresh_tokens` |
 | one queued/running job per dedupe key | **DB** unique + a Python pre-check | `db.py:186`, `jobs.py:59-62` |
 | referential integrity, cascades | **DB** FKs (SQLite needs `PRAGMA foreign_keys=ON`) | `db.py:238` |
 | **committed file has chunks 0..n-1, each with ≥ quorum `ok` replicas** | **Python, at commit only**; audited afterwards by fsck | `writer.py:335-351`, `fsck.py:35-89` |
