@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import hmac
 import logging
 import secrets
@@ -23,6 +24,7 @@ from drivemesh.core.system import DriveMesh
 from drivemesh.db import User
 from drivemesh.errors import AlreadyExists, DriveMeshError
 from drivemesh.web import api, facts, oauth
+from drivemesh.web.auth import session_user
 from drivemesh.web.security import (
     LoginThrottle,
     RequestContextMiddleware,
@@ -127,6 +129,12 @@ def create_app(
         redoc_url=None,
     )
     app.state.dm = dm
+    # Access-token signing key: explicit, or derived from the session secret (domain-separated).
+    app.state.jwt_key = (
+        st.jwt_secret.get_secret_value()
+        if st.jwt_secret
+        else hmac.new(session_secret.encode(), b"drivemesh-jwt-v1", hashlib.sha256).hexdigest()
+    )
     app.state.login_throttle = LoginThrottle(st.login_rate_per_minute)
     app.state.upload_progress = {}  # (user_id, upload_id) -> set of stored chunk indices
     app.add_middleware(SelectiveGZipMiddleware)
@@ -137,7 +145,7 @@ def create_app(
         session_cookie="dm_session",
         same_site="lax",
         https_only=st.secure_cookies,
-        max_age=14 * 24 * 3600,
+        max_age=st.session_days * 24 * 3600,
     )
     app.mount("/static", StaticFiles(directory=str(HERE / "static")), name="static")
     app.include_router(api.router)
@@ -166,7 +174,7 @@ def create_app(
 
     def page(name: str, auth: bool = True):
         def handler(request: Request):
-            if auth and not request.session.get("uid"):
+            if auth and session_user(request) is None:
                 return RedirectResponse("/login", status_code=303)
             return templates.TemplateResponse(request, name, {"active": name.split(".")[0]})
 
@@ -175,7 +183,7 @@ def create_app(
     @app.get("/", response_class=HTMLResponse)
     def landing(request: Request):
         """Public home page; 'Start meshing' leads to /login (or the dashboard when signed in)."""
-        logged_in = bool(request.session.get("uid"))
+        logged_in = session_user(request) is not None
         return templates.TemplateResponse(
             request,
             "landing.html",
@@ -199,9 +207,11 @@ def create_app(
 
     @app.get("/login", response_class=HTMLResponse)
     def login_page(request: Request):
-        if request.session.get("uid"):
+        if session_user(request) is not None:
             return RedirectResponse("/app", status_code=303)
-        return templates.TemplateResponse(request, "login.html", {})
+        return templates.TemplateResponse(
+            request, "login.html", {"google_configured": bool(st.google_client_id)}
+        )
 
     @app.get("/favicon.ico", include_in_schema=False)
     def favicon():
@@ -231,7 +241,8 @@ def create_app(
         if token:
             if not hmac.compare_digest(auth, f"Bearer {token}"):
                 return PlainTextResponse("unauthorized", status_code=401)
-        elif not request.session.get("uid"):
+        elif not ((u := session_user(request)) and u.is_admin):
+            # Metrics are system-wide, so only operators may read them.
             return PlainTextResponse("unauthorized", status_code=401)
         return PlainTextResponse(generate_latest(metrics.REGISTRY), media_type=CONTENT_TYPE_LATEST)
 

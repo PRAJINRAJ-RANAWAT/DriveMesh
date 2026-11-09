@@ -143,19 +143,58 @@ class DriveMesh:
             log.exception("failed to record event")
 
     # ---- users ------------------------------------------------------------
-    def create_user(self, username: str, password: str) -> User:
+    def create_user(self, username: str, password: str, *, is_admin: bool = True) -> User:
+        """Operator path (CLI / owner bootstrap): password login, operator rights by default."""
         with self.session() as s:
             if s.scalars(select(User).where(User.username == username)).first():
                 raise AlreadyExists(f"user {username!r} exists")
             u = User(
                 username=username,
                 password_hash=crypto.hash_password(password),
+                is_admin=is_admin,
                 created_at=self.now(),
             )
             s.add(u)
             s.flush()
             ns.root_folder(s, u.id)
             return u
+
+    def get_or_create_google_user(self, sub: str, email: str | None) -> tuple[User, bool]:
+        """Self-service sign-up/sign-in with a verified Google identity. Returns (user, created).
+
+        Keyed by Google's stable `sub`, never by email, so a changed or recycled address can't
+        take over an account. New users get no password and no operator rights."""
+        from sqlalchemy.exc import IntegrityError
+
+        from drivemesh.db import NO_PASSWORD
+
+        for _ in range(2):  # a concurrent first sign-in loses the unique race once, then finds it
+            try:
+                with self.session() as s:
+                    u = s.scalars(select(User).where(User.google_sub == sub)).first()
+                    if u is not None:
+                        if email and u.email != email:
+                            u.email = email
+                        return u, False
+                    base = (email or f"google-{sub[:8]}").lower()
+                    name, n = base, 2
+                    while s.scalars(select(User.id).where(User.username == name)).first():
+                        name, n = f"{base}-{n}", n + 1
+                    u = User(
+                        username=name,
+                        password_hash=NO_PASSWORD,
+                        google_sub=sub,
+                        email=email,
+                        is_admin=False,
+                        created_at=self.now(),
+                    )
+                    s.add(u)
+                    s.flush()
+                    ns.root_folder(s, u.id)
+                    return u, True
+            except IntegrityError:
+                continue
+        raise Conflict("could not create the account; try again")
 
     def get_user(self, username: str) -> User:
         with self.session() as s:
@@ -168,8 +207,11 @@ class DriveMesh:
         with self.session() as s:
             u = s.scalars(select(User).where(User.username == username)).first()
         # Hash even when the user is unknown so timing does not reveal valid usernames.
-        stored = u.password_hash if u else crypto.hash_password("dummy-password")
-        if not crypto.verify_password(password, stored) or u is None:
+        from drivemesh.db import NO_PASSWORD
+
+        has_password = u is not None and u.password_hash != NO_PASSWORD
+        stored = u.password_hash if has_password else crypto.hash_password("dummy-password")
+        if not crypto.verify_password(password, stored) or not has_password:
             raise Unauthorized("invalid credentials")
         return u
 

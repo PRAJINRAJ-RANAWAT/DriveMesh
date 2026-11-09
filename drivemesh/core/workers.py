@@ -122,7 +122,7 @@ def _target(f: File) -> int:
     return (f.ec_k or 0) + (f.ec_m or 0) if f.scheme == "ec" else f.rf
 
 
-def under_replicated_query(dm: DriveMesh, limit: int | None = None):
+def under_replicated_query(dm: DriveMesh, limit: int | None = None, user_id: str | None = None):
     cutoff = _dead_cutoff(dm)
     # replicas: count copies; erasure coding: count *distinct* shard indices
     unit = case((File.scheme == "ec", cast(Replica.shard_idx, String)), else_=Replica.id)
@@ -140,15 +140,19 @@ def under_replicated_query(dm: DriveMesh, limit: int | None = None):
         .where(File.state == "committed", healthy < target)
         .order_by(healthy, Chunk.id)
     )
+    if user_id is not None:
+        q = q.where(File.user_id == user_id)
     if limit:
         q = q.limit(limit)
     return q
 
 
-def under_replicated(dm: DriveMesh, limit: int | None = None) -> list[tuple[Chunk, File, int]]:
+def under_replicated(
+    dm: DriveMesh, limit: int | None = None, user_id: str | None = None
+) -> list[tuple[Chunk, File, int]]:
     """Chunks of committed files with fewer healthy replicas than their target,
     fewest-healthy first (HDFS priority queues, flattened)."""
-    q = under_replicated_query(dm, limit)
+    q = under_replicated_query(dm, limit, user_id)
     with dm.session() as s:
         return [(c, f, int(h)) for c, f, h in s.execute(q).all()]
 
@@ -545,7 +549,12 @@ def pooled_capacity(accounts: list[LinkedAccount]) -> dict[str, int]:
 
 
 # ---- status -------------------------------------------------------------------------------------
-def cluster_status(dm: DriveMesh, user_id: str | None = None) -> dict[str, Any]:
+def cluster_status(
+    dm: DriveMesh, user_id: str | None = None, *, admin: bool = True
+) -> dict[str, Any]:
+    """Health summary. With `admin=False` everything is scoped to `user_id` (open sign-up:
+    one user must not see another's files, replicas, events or the global job queue)."""
+    scoped = user_id is not None and not admin
     with dm.session() as s:
         aq = select(LinkedAccount).where(LinkedAccount.state != "removed")
         if user_id:
@@ -564,16 +573,27 @@ def cluster_status(dm: DriveMesh, user_id: str | None = None) -> dict[str, Any]:
         per_acc = dict(
             s.execute(
                 select(Replica.account_id, func.count())
-                .where(Replica.state == "ok")
+                .where(Replica.state == "ok", Replica.account_id.in_(acc_ids))
                 .group_by(Replica.account_id)
             ).all()
         )
-        rstates = dict(s.execute(select(Replica.state, func.count()).group_by(Replica.state)).all())
-        fstates = dict(s.execute(select(File.state, func.count()).group_by(File.state)).all())
-        dead_jobs = [
-            {"id": j.id, "kind": j.kind, "error": j.last_error}
-            for j in s.scalars(select(Job).where(Job.state == "dead").limit(20))
-        ]
+        rq = select(Replica.state, func.count()).group_by(Replica.state)
+        fq = select(File.state, func.count()).group_by(File.state)
+        eq = select(Event).order_by(Event.id.desc()).limit(25)
+        if scoped:
+            rq = rq.where(Replica.account_id.in_(acc_ids))
+            fq = fq.where(File.user_id == user_id)
+            eq = eq.where(or_(Event.user_id == user_id, Event.account_id.in_(acc_ids)))
+        rstates = dict(s.execute(rq).all())
+        fstates = dict(s.execute(fq).all())
+        dead_jobs = (
+            []
+            if scoped  # jobs are not per user; only operators see the global queue
+            else [
+                {"id": j.id, "kind": j.kind, "error": j.last_error}
+                for j in s.scalars(select(Job).where(Job.state == "dead").limit(20))
+            ]
+        )
         events = [
             {
                 "ts": e.ts,
@@ -582,14 +602,15 @@ def cluster_status(dm: DriveMesh, user_id: str | None = None) -> dict[str, Any]:
                 "account_id": e.account_id,
                 "file_id": e.file_id,
             }
-            for e in s.scalars(select(Event).order_by(Event.id.desc()).limit(25))
+            for e in s.scalars(eq)
         ]
         from drivemesh.db import KV
 
         last_backup = s.get(KV, "last_backup_at")
-    for state in ("pending", "ok", "missing", "corrupt", "deleting"):
-        metrics.REPLICAS.labels(state).set(rstates.get(state, 0))
-    ur = under_replicated(dm)
+    if not scoped:
+        for state in ("pending", "ok", "missing", "corrupt", "deleting"):
+            metrics.REPLICAS.labels(state).set(rstates.get(state, 0))
+    ur = under_replicated(dm, user_id=user_id if scoped else None)
     return {
         "safe_mode": {"active": dm.safe_mode.active, "reason": dm.safe_mode.reason},
         "accounts": [
@@ -614,7 +635,7 @@ def cluster_status(dm: DriveMesh, user_id: str | None = None) -> dict[str, Any]:
         "files": fstates,
         "under_replicated_chunks": len(ur),
         "unavailable_chunks": sum(1 for _, f, h in ur if h < (f.ec_k or 1)),
-        "jobs": dm.jobs.counts(),
+        "jobs": {} if scoped else dm.jobs.counts(),
         "dead_jobs": dead_jobs,
         "last_backup_at": last_backup.value if last_backup else None,
         "recent_events": events,

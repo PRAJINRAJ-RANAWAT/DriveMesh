@@ -71,6 +71,12 @@ class Settings(BaseSettings):
     metrics_token: SecretStr | None = None
     public_base_url: str = "http://localhost:8000"
     login_rate_per_minute: int = 10
+    # Auth: browser sessions (server-side) and API tokens (JWT access + rotating refresh).
+    session_days: int = Field(14, ge=1, le=90)
+    access_token_minutes: int = Field(15, ge=1, le=60)
+    refresh_token_days: int = Field(30, ge=1, le=365)
+    # HS256 key for access tokens. Unset: derived from the session secret.
+    jwt_secret: SecretStr | None = None
     # Optional first-start bootstrap of the owner account (for hosts without shell access).
     owner_username: str | None = None
     owner_password: SecretStr | None = None

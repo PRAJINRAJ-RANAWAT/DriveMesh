@@ -30,15 +30,18 @@ def get_dm(request: Request):
 
 
 def current_user(request: Request) -> User:
-    uid = request.session.get("uid")
-    if not uid:
-        raise Unauthorized("login required")
-    dm = request.app.state.dm
-    with dm.session() as s:
-        user = s.get(User, uid)
+    """The caller: a Bearer JWT (API clients) or a valid server-side cookie session (browser)."""
+    from drivemesh.web.auth import session_user, verify_access_token
+
+    header = request.headers.get("authorization", "")
+    if header[:7].lower() == "bearer ":
+        user = verify_access_token(request.app.state.dm, request.app.state.jwt_key, header[7:])
+        request.state.auth = "bearer"
+        return user
+    user = session_user(request)
     if user is None:
-        request.session.clear()
         raise Unauthorized("login required")
+    request.state.auth = "cookie"
     return user
 
 
@@ -50,8 +53,11 @@ def ensure_csrf_token(request: Request) -> str:
 
 
 def require_csrf(request: Request, user: User = Depends(current_user)) -> User:
-    """Synchronizer-token CSRF defence for every state-changing request."""
-    if request.method not in SAFE_METHODS:
+    """Synchronizer-token CSRF defence for every state-changing cookie-authenticated request.
+
+    Bearer-token requests are exempt: browsers never attach an Authorization header on their
+    own, so a cross-site page cannot forge one."""
+    if request.method not in SAFE_METHODS and getattr(request.state, "auth", "") != "bearer":
         sent = request.headers.get("x-csrf-token", "")
         expected = request.session.get("csrf", "")
         if not expected or not hmac.compare_digest(sent, expected):

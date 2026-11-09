@@ -54,3 +54,7 @@ class Unauthorized(DriveMeshError):
 
 class Forbidden(DriveMeshError):
     code, http_status = "forbidden", 403
+
+
+class RateLimited(DriveMeshError):
+    code, http_status = "rate_limited", 429

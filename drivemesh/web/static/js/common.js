@@ -42,6 +42,13 @@ const DM = {
     if (who) who.textContent = data.user.username;
     const logout = document.getElementById("logout");
     if (logout) logout.addEventListener("click", async () => { await DM.api("POST", "/api/v1/auth/logout"); location.href = "/"; });
+    const logoutAll = document.getElementById("logout-all");
+    if (logoutAll) logoutAll.addEventListener("click", async () => {
+      const ok = await DM.dialog({ title: "Sign out everywhere?", body: "Every browser and every API token signed in as you is signed out, including this one.", confirmText: "Sign out everywhere", danger: true });
+      if (!ok) return;
+      await DM.api("POST", "/api/v1/auth/logout-all");
+      location.href = "/login";
+    });
     return data;
   },
 
@@ -105,6 +112,8 @@ const DM = {
     upload_abandoned: ["Abandoned upload cleaned", "warning"], orphans_swept: ["Orphans cleaned", ""],
     job_dead: ["Job failed permanently", "critical"], balancer_pass: ["Rebalanced", "good"],
     keys_rewrapped: ["Keys rotated", "good"], token_revoked: ["Token revoked", ""],
+    user_signed_up: ["Account created", "good"], sessions_revoked: ["Signed out everywhere", ""],
+    api_token_issued: ["API token issued", ""], refresh_token_reuse: ["API token reuse blocked", "warning"],
   },
 
   activityItem(e) {
