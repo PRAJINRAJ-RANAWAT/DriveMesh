@@ -33,7 +33,7 @@ Number labels used throughout:
 | 5 | **60 s / 3 / 600 s** | health-check interval / consecutive failures before `unreachable` / grace period before an unhealthy account's replicas stop counting | `config.py:46-48` |
 | 6 | **900 s, keep 5** | metadata snapshot interval and retention per account | `config.py:59-60` |
 | 7 | **10 GiB** | default max upload size | `config.py:33` |
-| 8 | **0 / 70** | files lost / chaos trials | R-008 [measured, local] |
+| 8 | **0 / 140** | files lost / chaos trials: 70 before and 70 after the 2026-11-09 fixes | R-008, R-015 [measured, local] |
 | 9 | **5.0 s / 7.9 s** | repair scan / fsck over 1M chunks on Postgres 16 (fsck was 291 s) | R-007 [measured, local] |
 | 10 | **47.2 vs 8.5 MB/s** | 8 accounts parallel vs sequential, simulated 10 MB/s links. Peak RSS stays flat at 291–331 MiB from 1 to 5 GB | R-004 [measured, sim], R-003 [measured, local] |
 
@@ -85,7 +85,7 @@ Number labels used throughout:
 | M17 | 02 §6 / ADR-015: "`drivemesh restore` pulls the snapshot from **any account**" | the CLI restores only from a **local directory** (`restore_from_local_dir`). `restore_from_backend` exists but has no caller (no CLI or UI path for Drive) | `cli.py:250-256`, `backup.py:193-198` |
 | M18 | 02 §4: "max file size 1 TiB by design" | enforced default **10 GiB**: on the declared `Content-Length` and while streaming | `config.py:33`, `api.py:191-194`, `writer.py:170-173` |
 | M19 | 02 §6: a deleted account is detected by "404 on the app folder" | **was** false: the folder id is cached from `config_json`, so `health()` never checked it. **Fixed 2026-11-09:** `health()` now fetches the folder by id. 404 or `trashed` → `NotFoundError` → after 3 probes `unreachable` → repair (`gdrive.py`, `_check_folder`; `tests/test_gdrive.py`) | `gdrive.py:182-184`, `oauth.py:110-117` |
-| M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **222 tests**, 91 % (R-011); tested to **5 GB** (R-003) | results.md |
+| M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **235 tests**, 91 % (R-011, after the 2026-11-09 fixes); tested to **5 GB** (R-003) | results.md |
 | M21 | 06 Q2: after an account fails, "reads skip it immediately" | `revoked` replicas are skipped. `unreachable` replicas are still tried, **last** | `reader.py:91,141-142` |
 | M22 | 03 §13: metrics labelled `{account}` | the labels are `{provider}` | `metrics.py:9-14` |
 | M23 | 03 §10: "if the refresh token changes, the new one is persisted" | secrets are written only at link time. Refreshed access tokens live only in memory | `accounts.py:152-153` (only caller of `write_secret`) |
@@ -683,7 +683,7 @@ It does **not** see names or contents. Names are random UUIDs (`db.py:32-33,172-
 | Chunk-size sweep, 4 accounts, RF=2 | upload 16.2–19.5 MB/s; download peaks at 35.6 MB/s with 16 MiB chunks | R-005 [measured, sim] |
 | Repair, 1 of 4 accounts lost | 12.74 MB/s sim (was 4.30); 933 MB/s local | R-006 |
 | Metadata at 1M chunks | Postgres: repair scan 5.04 s, fsck 7.87 s; SQLite: 26.4 s / 16.5 s | R-007 [measured, local] |
-| Chaos | 70 trials, 0 files lost, 0 wrong bytes | R-008 [measured, local] |
+| Chaos | 70 trials, 0 files lost, 0 wrong bytes; re-run after the fixes: another 70, 0 lost | R-008, R-015 [measured, local] |
 | Hot-path query plans | download replica query 3.9 → 19.6 ms without statistics at 40k replicas | R-014 [measured, local] |
 | **Anything on real Google Drive** | **[placeholder]** | results.md "Pending" |
 

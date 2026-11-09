@@ -195,10 +195,10 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 
 ## R-011: Test suite size and coverage
 - Method: `pytest --cov=drivemesh` on SQLite, 2026-11-09, after the UI redesign (the same suite also runs on Postgres 16 in CI).
-- Result (updated 2026-11-09 after the landing/UX iteration): **222 tests**, made up of 212 unit/integration/API tests passing on SQLite
+- Result (updated 2026-11-09 after the five fixes from 08-how-it-works): **235 tests**, made up of 225 unit/integration/API tests passing on SQLite
   plus 10 Playwright browser tests (they run in the CI `ui` job; skipped locally unless `DRIVEMESH_UI_TESTS=1`). All 10 passed locally
-  against Brave/Chromium. Line coverage **91%** (3,845 statements, 349 missed).
-- Earlier value (before the iteration): 208 tests, 91%.
+  against Brave/Chromium. Line coverage **91%** (3,866 statements, 344 missed).
+- Earlier values: 222 tests, 91% (3,845 statements, 349 missed) after the landing/UX iteration; 208 tests, 91% before it.
 - These two numbers are shown on the landing page (`drivemesh/web/facts.py`); `test_landing_numbers_match_results` fails if they diverge from this entry.
 
 ## R-012: Lighthouse after the "Paper & Ink" redesign (`local`)
@@ -265,3 +265,26 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 
 - The new plan doesn't depend on statistics. Its cost grows with the file's chunk count, not with the size of the database.
 - Pinned by `tests/test_scalability.py::test_r014_download_replica_lookup_uses_composite_index`. It `EXPLAIN`s the SQL the reader actually issues, and it failed against the old query.
+
+
+## R-015: Chaos suite re-run after the 08-how-it-works fixes (`local`)
+- Method: same as R-008, `python -m bench.chaos all --trials 10`, 2026-11-09. Saved to `bench/out/chaos-2026-11-09T122804.json`.
+- The code under test includes:
+  - the conditional GC abort and commit (§3.6)
+  - lease renewal while bytes arrive and while waiting on in-flight chunks (§1.6)
+  - batched replica lookups on download (R-014)
+  - the Drive folder check (M19; the chaos suite uses local accounts, so this one is not exercised)
+  - the removed `safe_mode_timeout`
+
+| Experiment (10 trials each) | Files lost | Wrong bytes served | fsck clean | Orphans left | Under-replicated after |
+|---|---|---|---|---|---|
+| account-loss | 0 | 0 | 10/10 | 0 | 0 |
+| account-loss-rf3 | 0 | 0 | 10/10 | 0 | 0 |
+| delete-chunks | 0 | 0 | 10/10 | 0 | 0 |
+| corrupt-chunks | 0 | 0 | 10/10 | 0 | 0 |
+| kill-upload | 0 | 0 | 10/10 | 0 | 0 |
+| kill-repair | 0 | 0 | 10/10 | 0 | 0 |
+| metadata-restore | 0 | 0 | 10/10 | 0 | 0 |
+
+- **Total: 70 more trials, 0 files lost, 0 wrong bytes served.** The fixes didn't regress durability.
+- What this does *not* show: the chaos suite never produced the GC/commit interleaving that the fix closes. That race is covered only by the deterministic test `tests/test_gc_commit_race.py`.
