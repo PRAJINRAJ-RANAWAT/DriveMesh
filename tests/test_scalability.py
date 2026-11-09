@@ -234,3 +234,47 @@ def test_pooled_capacity_counts_each_local_disk_once(dm, user, tmp_path):
     sim = next(a for a in accs if a.display_name == "sim")
     assert cap["total_bytes"] == disk.capacity_bytes + sim.capacity_bytes  # not 3x the disk
     assert cap["used_bytes"] == sum(a.used_bytes or 0 for a in accs)
+
+
+def test_r014_download_replica_lookup_uses_composite_index(dm, user, accounts):
+    """Regression for R-014: the reader's replica lookup must use (chunk_id, state).
+
+    Without statistics SQLite planned the old join from (state, verified_at), which visits
+    every 'ok' replica in the database for every download.
+    """
+    if dm.engine.dialect.name != "sqlite":
+        pytest.skip("SQLite query-plan check")
+    from sqlalchemy import event
+
+    from drivemesh.core.reader import FileReader
+
+    dm.put(user.id, "/x", payload(3 * CHUNK))
+    f = dm.stat(user.id, "/x")
+    captured: list[tuple[str, object]] = []
+
+    def grab(conn, cursor, statement, params, context, many):
+        s = " ".join(statement.split())
+        if s.startswith("SELECT") and "FROM replicas" in s:
+            captured.append((statement, params))
+
+    event.listen(dm.engine, "before_cursor_execute", grab)
+    try:
+        FileReader(dm, f)
+    finally:
+        event.remove(dm.engine, "before_cursor_execute", grab)
+    assert captured, "reader issued no replica query"
+    with dm.engine.connect() as c:
+        for sql, params in captured:
+            plan = " | ".join(r[-1] for r in c.exec_driver_sql("EXPLAIN QUERY PLAN " + sql, params))
+            assert "ix_replicas_chunk_state" in plan, plan
+            assert "ix_replicas_state_verified" not in plan, plan
+
+
+def test_reader_batches_replica_lookups(dm, user, accounts, monkeypatch):
+    """Files with more chunks than one lookup batch still read back exactly (R-014 fix)."""
+    from drivemesh.core import reader
+
+    monkeypatch.setattr(reader, "REPLICA_LOOKUP_BATCH", 2)
+    data = payload(5 * CHUNK + 7)
+    dm.put(user.id, "/many", data)
+    assert dm.get_bytes(user.id, "/many") == data

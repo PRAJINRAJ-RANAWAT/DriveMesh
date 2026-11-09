@@ -95,7 +95,7 @@ Number labels used throughout:
 
 There are also **defects found while writing this** (not doc mismatches). They are in §8.4 and §12.6. The most important ones:
 - a GC-vs-commit lost-update race (§3.6), **now fixed**
-- a download query plan that becomes O(all replicas) on SQLite (R-014)
+- a download query plan that becomes O(all replicas) on SQLite (R-014), **now fixed**
 - uploads that fail on connections slower than ~28 KB/s (§1.5)
 
 ---
@@ -709,7 +709,7 @@ What they mean in practice [computed]:
 ### 8.4 Known limitations and honest gaps
 1. No real-Drive measurements yet (R-pending).
 2. ~~GC-vs-commit lost update (§3.6)~~ **Fixed 2026-11-09** with a regression test.
-3. On SQLite without `ANALYZE`, the download replica query becomes O(all replicas) (R-014). **Not fixed.**
+3. ~~On SQLite without `ANALYZE`, the download replica query became O(all replicas) (R-014)~~ **Fixed 2026-11-09**: the lookup is now by `chunk_id IN (…)`, pinned by a plan test.
 4. Uploads slower than ~28 KB/s fail (lease, §1.6).
 5. RPO ≥ 15 min. Restore after post-snapshot repair/balance can lose chunks (§4.6). There's no CLI restore from Drive (M17).
 6. A deleted `DriveMesh` folder isn't detected by health checks (M19).
@@ -1124,13 +1124,13 @@ WHERE files.user_id = ? AND files.folder_id = ? AND files.name = ? AND files.sta
 -- Download 2: chunks (reader.py:67-69)  → uq_chunk_file_idx (sqlite_autoindex_chunks_2)
 SELECT chunks.* FROM chunks WHERE chunks.file_id = ? ORDER BY chunks.idx;
 
--- Download 3: ok replicas (reader.py:70-75)
---   with stats:    ix_chunks_file_id → ix_replicas_chunk_state (chunk_id=? AND state=?) → linked_accounts PK
---   without stats: ix_replicas_state_verified (state=?)  ← scans every ok replica (R-014)
+-- Download 3: ok replicas, in batches of 500 chunk ids (reader.py, _load_chunks)
+--   → ix_replicas_chunk_state (chunk_id=? AND state=?) with or without statistics (R-014 fix).
+--   The old form joined chunks and filtered on state; without stats SQLite planned it from
+--   ix_replicas_state_verified and visited every ok replica in the DB.
 SELECT replicas.*, linked_accounts.state FROM replicas
 JOIN linked_accounts ON linked_accounts.id = replicas.account_id
-JOIN chunks ON chunks.id = replicas.chunk_id
-WHERE chunks.file_id = ? AND replicas.state = 'ok';
+WHERE replicas.chunk_id IN (?, ?, …) AND replicas.state = 'ok';
 
 -- Repair 1: queue (workers.py:125-145)  → files scan / ix_files_state_lease, ix_chunks_file_id,
 --   correlated subquery on ix_replicas_chunk_state (chunk_id=? AND state=?)  (the R-007 fix, pinned by
@@ -1171,8 +1171,8 @@ Note: the repair SQL repeats the correlated subquery three times (SELECT, WHERE,
 | Transaction start | pysqlite starts a transaction only at the first INSERT/UPDATE/DELETE, so the commit's validation SELECTs run before `BEGIN` | `BEGIN` at the first statement, READ COMMITTED | on SQLite the commit's checks and its flip aren't one snapshot. The validated state can change in between. Both DBs are exposed to the §3.6 lost update, because neither re-checks state in the `UPDATE` |
 | Concurrent same-path commits | the second writer waits for the lock, then hits the unique index | the second waits on the index entry until the first commits, then raises `IntegrityError` | both end at `writer.py:346-350` (retry once with overwrite, else 409) |
 | Partial unique index | supported (`sqlite_where`) | supported (`postgresql_where`) | same invariant on both (`db.py:103-104`) |
-| Statistics | **none unless `ANALYZE` runs, and nothing runs it** | autovacuum analyzes automatically | the **quadratic plan** (R-007: 68 s at 20k chunks, before the fix) came from SQLite choosing `ix_replicas_state_verified` without statistics. It was fixed for the repair scan with the `(chunk_id, state)` index + a plan test, but the **download replica query still picks the wrong index without stats** (R-014: 3.9 → 19.6 ms at 40k replicas, growing with total replicas). Fix options: `PRAGMA optimize`/`ANALYZE` at startup, or filter replicas by `chunk_id IN (…)` |
+| Statistics | **none unless `ANALYZE` runs, and nothing runs it** | autovacuum analyzes automatically | the **quadratic plan** (R-007: 68 s at 20k chunks, before the fix) came from SQLite choosing `ix_replicas_state_verified` without statistics. It was fixed for the repair scan with the `(chunk_id, state)` index + a plan test, the **download** query had the same trap (R-014: 3.9 → 19.6 ms at 40k replicas without stats). **Fixed 2026-11-09** by looking up `chunk_id IN (…)`, which uses the composite index regardless of stats, and pinned by a plan test |
 | Scale | 1M chunks: repair scan 26.4 s, fsck 16.5 s; a bigger page cache didn't help (R-007, R-009) | 5.04 s / 7.87 s (R-007) | production must be Postgres; `ENV=prod` refuses SQLite (`config.py:102-103`) |
 | `NULLS FIRST` (scrub order) | supported (3.30+) | supported | portable (`workers.py:382`) |
 | FKs / cascade | only with `PRAGMA foreign_keys=ON` (set on every connection, `db.py:238`) | always | same behaviour |
-| Plan regression test | runs | **skipped** (`tests/test_scalability.py:210-211`) | Postgres plans aren't pinned by tests |
+| Plan regression tests (repair + download) | run | **skipped** | Postgres plans aren't pinned by tests |
