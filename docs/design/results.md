@@ -251,4 +251,17 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
   - Without statistics, SQLite plans the reader's replica query from `ix_replicas_state_verified`. Its cost then grows with the total number of replicas, not with the file's chunk count.
   - Nothing in the app runs `ANALYZE` on SQLite. Postgres autovacuum gathers statistics on its own.
   - The plan regression test (`test_r010_query_plans_use_composite_replica_index`) covers only the repair scan.
-  - Not fixed yet. See 08-how-it-works.md §12.6.
+  - Not fixed at the time of measurement. See 08-how-it-works.md §12.6.
+- **Fix (2026-11-09):**
+  - `FileReader._load_chunks` now looks replicas up with `replicas.chunk_id IN (…)` in batches of 500, with no join to `chunks`.
+  - Re-measured with the same method and dataset, single run:
+
+| Query | Stats | Plan | Time |
+|---|---|---|---|
+| old join (whole 1,000-chunk file) | `ANALYZE` | `ix_chunks_file_id` → `ix_replicas_chunk_state` | 4.0 ms |
+| old join (whole 1,000-chunk file) | none | **`ix_replicas_state_verified`** (all `ok` replicas) | 19.9 ms |
+| new `IN` lookup (one batch of 500 ids; this file needs 2) | `ANALYZE` | `ix_replicas_chunk_state (chunk_id=? AND state=?)` | 3.3 ms |
+| new `IN` lookup (one batch of 500 ids; this file needs 2) | none | `ix_replicas_chunk_state (chunk_id=? AND state=?)` | 3.2 ms |
+
+- The new plan doesn't depend on statistics. Its cost grows with the file's chunk count, not with the size of the database.
+- Pinned by `tests/test_scalability.py::test_r014_download_replica_lookup_uses_composite_index`. It `EXPLAIN`s the SQL the reader actually issues, and it failed against the old query.

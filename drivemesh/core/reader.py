@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from drivemesh.core.system import DriveMesh
 
 log = logging.getLogger(__name__)
+REPLICA_LOOKUP_BATCH = 500  # chunk ids per replica query (SQLite variable limit headroom)
 
 
 @dataclass
@@ -67,12 +68,21 @@ class FileReader:
             chunks = list(
                 s.scalars(select(Chunk).where(Chunk.file_id == self.file.id).order_by(Chunk.idx))
             )
-            rows = s.execute(
-                select(Replica, LinkedAccount.state)
-                .join(LinkedAccount, LinkedAccount.id == Replica.account_id)
-                .join(Chunk, Chunk.id == Replica.chunk_id)
-                .where(Chunk.file_id == self.file.id, Replica.state == "ok")
-            ).all()
+            # Look replicas up by chunk id, in batches. A join filtered on replicas.state let
+            # SQLite (without statistics) plan from the (state, verified_at) index and visit
+            # every 'ok' replica in the database (results.md R-014). `chunk_id IN (...)` leaves
+            # only the (chunk_id, state) index; batches stay under SQLite's variable limit.
+            ids = [c.id for c in chunks]
+            rows = []
+            for i in range(0, len(ids), REPLICA_LOOKUP_BATCH):
+                rows += s.execute(
+                    select(Replica, LinkedAccount.state)
+                    .join(LinkedAccount, LinkedAccount.id == Replica.account_id)
+                    .where(
+                        Replica.chunk_id.in_(ids[i : i + REPLICA_LOOKUP_BATCH]),
+                        Replica.state == "ok",
+                    )
+                ).all()
         by_chunk: dict[str, list[ReplicaRef]] = {}
         for r, acc_state in rows:
             by_chunk.setdefault(r.chunk_id, []).append(

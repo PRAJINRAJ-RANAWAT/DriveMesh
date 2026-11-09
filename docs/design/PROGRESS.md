@@ -117,7 +117,7 @@
 - Placement is load-aware, so it isn't a pure function of (chunk, accounts) (ADR-005a).
 - Found while writing 08-how-it-works.md (2026-11-09), not fixed yet:
   - ~~GC-vs-commit lost update~~: fixed with a conditional abort, a conditional commit and heartbeats while waiting (§3.6).
-  - Download replica query uses the wrong index on SQLite without `ANALYZE` (R-014).
+  - ~~Download replica query uses the wrong index on SQLite without `ANALYZE`~~: fixed with a `chunk_id IN (…)` lookup and a plan test (R-014).
   - Uploads slower than ~28 KB/s fail: the lease is refreshed only per chunk.
   - Restore after post-snapshot repair/balance can lose chunks; there is no CLI restore from Drive.
   - A deleted `DriveMesh` Drive folder isn't detected by health checks.
