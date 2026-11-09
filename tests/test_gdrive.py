@@ -188,3 +188,61 @@ def test_full_system_on_fake_drive(dm, user, monkeypatch):
     dm.put(user.id, "/doc.bin", data)
     assert dm.get_bytes(user.id, "/doc.bin") == data
     assert all(any(f["name"].startswith("dm-") for f in d.files.values()) for d in drives.values())
+
+
+def _linked_backend(drive) -> GoogleDriveBackend:
+    """A backend built the way accounts are: with the folder id remembered in config_json."""
+    first = GoogleDriveBackend(drive.service)
+    first.put("dm-1", b"x")
+    return GoogleDriveBackend(drive.service, first.folder_id)
+
+
+@pytest.mark.parametrize("how", ["deleted", "trashed"])
+def test_health_fails_when_app_folder_is_gone(drive, how):
+    """Regression for 08 M19: health() trusted the cached folder id, so a user deleting the
+    DriveMesh folder left the account 'healthy' while every object was gone."""
+    b = _linked_backend(drive)
+    assert b.health().capacity_bytes  # folder present: healthy
+    if how == "deleted":
+        del drive.files[b.folder_id]
+    else:
+        drive.files[b.folder_id]["trashed"] = True
+    with pytest.raises(NotFoundError, match="DriveMesh folder"):
+        b.health()
+
+
+def test_missing_app_folder_makes_account_unreachable(dm, user):
+    """End to end: three failed probes mark the account unreachable, so repair takes over."""
+    from drivemesh.core.workers import health_check
+
+    drives = {"g1": FakeDrive(), "g2": FakeDrive(), "g3": FakeDrive()}
+    orig = dm.accounts.factory
+
+    def factory(acc, secret):
+        if acc.provider == "gdrive":
+            import json
+
+            folder = json.loads(acc.config_json or "{}").get("folder_id")
+            return GoogleDriveBackend(drives[acc.external_id].service, folder)
+        return orig(acc, secret)
+
+    dm.accounts.factory = factory
+    accs = {}
+    for name, d in drives.items():
+        folder = GoogleDriveBackend(d.service).ensure_folder()
+        accs[name] = dm.accounts.link(
+            user.id,
+            "gdrive",
+            name,
+            name,
+            config={"folder_id": folder},
+            secret={"refresh_token": "r"},
+        )
+    assert set(health_check(dm).values()) == {"active"}
+    victim = drives["g1"]
+    victim_folder = next(k for k, f in victim.files.items() if f["name"] == "DriveMesh")
+    del victim.files[victim_folder]
+    for _ in range(dm.settings.unreachable_after_failures):
+        states = health_check(dm)
+    assert states[accs["g1"].id] == "unreachable"
+    assert dm.accounts.get(accs["g1"].id).unhealthy_since is not None

@@ -120,6 +120,6 @@
   - ~~Download replica query uses the wrong index on SQLite without `ANALYZE`~~: fixed with a `chunk_id IN (…)` lookup and a plan test (R-014).
   - ~~Uploads slower than ~28 KB/s fail~~: the lease is now renewed whenever bytes arrive (§1.6).
   - Restore after post-snapshot repair/balance can lose chunks; there is no CLI restore from Drive.
-  - A deleted `DriveMesh` Drive folder isn't detected by health checks.
+  - ~~A deleted `DriveMesh` Drive folder isn't detected by health checks~~: `health()` now verifies the folder (M19).
   - `safe_mode_timeout` is unused.
   - 26 doc mismatches are listed in 08 §0.3; 02/03/04/06 are not yet corrected in place.
