@@ -17,7 +17,7 @@ import logging
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from drivemesh.backends.base import AuthError, BackendError, NotFoundError
 from drivemesh.core.jobs import RetryLater, enqueue, register
@@ -124,15 +124,24 @@ def gc_file_job(dm: DriveMesh, payload: dict[str, Any]) -> None:
 def scan(dm: DriveMesh) -> dict[str, int]:
     """Periodic GC pass. Safe to run concurrently with writers."""
     now = dm.now()
-    aborted = 0
+    stale: list[tuple[str, str]] = []
     with dm.session() as s:
-        stale = list(
-            s.scalars(select(File).where(File.state == "pending", File.lease_expires_at < now))
-        )
-        for f in stale:
-            f.state, f.lease_expires_at = "aborted", None
-            enqueue(s, "gc_file", {"file_id": f.id}, now=now, dedupe_key=f"gc_file:{f.id}")
-            aborted += 1
+        expired = (File.state == "pending", File.lease_expires_at < now)
+        for fid, uid in s.execute(select(File.id, File.user_id).where(*expired)).all():
+            # Conditional abort: the writer may have committed or heartbeated since the read
+            # above. An unconditional write here overwrote 'committed' (08-how-it-works §3.6).
+            res = s.execute(
+                update(File)
+                .where(File.id == fid, *expired)
+                .values(state="aborted", lease_expires_at=None)
+                .execution_options(synchronize_session=False)
+            )
+            if res.rowcount != 1:
+                continue
+            enqueue(s, "gc_file", {"file_id": fid}, now=now, dedupe_key=f"gc_file:{fid}")
+            stale.append((fid, uid))
+    aborted = len(stale)
+    with dm.session() as s:
         # Aborted files whose GC job finished/died without completing get a fresh job.
         for fid in s.scalars(select(File.id).where(File.state == "aborted")).all():
             enqueue(s, "gc_file", {"file_id": fid}, now=now, dedupe_key=f"gc_file:{fid}")
@@ -151,8 +160,8 @@ def scan(dm: DriveMesh) -> dict[str, int]:
                 )
             )
         )
-    for f in stale:
-        dm.event("upload_abandoned", level="warning", file_id=f.id, user_id=f.user_id)
+    for fid, uid in stale:
+        dm.event("upload_abandoned", level="warning", file_id=fid, user_id=uid)
     errors = (
         purge_replicas(dm, stale_replicas, context={"reason": "stale"}) if stale_replicas else []
     )

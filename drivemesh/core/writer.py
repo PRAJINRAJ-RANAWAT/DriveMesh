@@ -15,12 +15,12 @@ import hashlib
 import logging
 import threading
 from collections.abc import Callable
-from concurrent.futures import FIRST_COMPLETED, Future, ThreadPoolExecutor, as_completed, wait
+from concurrent.futures import ALL_COMPLETED, FIRST_COMPLETED, Future, ThreadPoolExecutor, wait
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 from sqlalchemy.exc import IntegrityError
 
 from drivemesh import crypto, metrics, placement
@@ -103,6 +103,7 @@ class FileWriter:
         self._bad_accounts: set[str] = set()
         self._bad_lock = threading.Lock()  # chunk threads update and read it concurrently
         self._last_heartbeat = dm.now()
+        self.heartbeat_poll_seconds = 1.0  # real seconds between lease checks while waiting
         self._reserve()
         self._pool = ThreadPoolExecutor(self.window, thread_name_prefix="dm-chunk")
 
@@ -185,23 +186,41 @@ class FileWriter:
         # Backpressure without head-of-line blocking: wait for *any* chunk to finish (chunks
         # are independent until commit), not the oldest one.
         while len(self._inflight) >= self.window:
-            done, self._inflight = wait(self._inflight, return_when=FIRST_COMPLETED)
-            for fut in done:
-                fut.result()  # raises on chunk failure
+            self._wait_inflight(FIRST_COMPLETED)
         idx = self._next_idx
         self._next_idx += 1
         self._inflight.add(self._pool.submit(self._store_chunk, idx, plain, last))
         self._heartbeat()
 
+    def _wait_inflight(self, return_when: str) -> None:
+        """Wait for in-flight chunks in short slices, renewing the lease between slices, so
+        slow puts during backpressure or close() never let a live upload's lease expire."""
+        done, pending = wait(
+            self._inflight, timeout=self.heartbeat_poll_seconds, return_when=return_when
+        )
+        self._inflight = set(pending)
+        for fut in done:
+            fut.result()  # raises on chunk failure
+        self._heartbeat()
+
+    def heartbeat_due(self) -> bool:
+        """True when the lease should be renewed (cheap: no I/O). Used by the HTTP layer."""
+        lease = self.dm.settings.pending_lease_seconds
+        return (self.dm.now() - self._last_heartbeat).total_seconds() >= lease / 3
+
     def _heartbeat(self) -> None:
+        if not self.heartbeat_due():
+            return
         now = self.dm.now()
         lease = self.dm.settings.pending_lease_seconds
-        if (now - self._last_heartbeat).total_seconds() < lease / 3:
-            return
         with self.dm.session() as s:
-            f = s.get(File, self.file_id)
-            if f is not None and f.state == "pending":
-                f.lease_expires_at = now + timedelta(seconds=lease)
+            # Conditional: never touch a file GC has already aborted.
+            s.execute(
+                update(File)
+                .where(File.id == self.file_id, File.state == "pending")
+                .values(lease_expires_at=now + timedelta(seconds=lease))
+                .execution_options(synchronize_session=False)
+            )
         self._last_heartbeat = now
 
     def _store_chunk(self, idx: int, plain: bytes, last: bool) -> None:
@@ -288,9 +307,8 @@ class FileWriter:
             if self._size > 0:
                 self._submit(bytes(self._buf), last=True)
                 self._buf = bytearray()
-            for fut in as_completed(self._inflight):
-                fut.result()
-            self._inflight = set()
+            while self._inflight:
+                self._wait_inflight(ALL_COMPLETED)
             info = self._commit()
         except BaseException as exc:
             self.abort(f"{type(exc).__name__}: {exc}")
@@ -341,8 +359,23 @@ class FileWriter:
                         now=now,
                         dedupe_key=f"delete_file:{old.id}",
                     )
-                f.state, f.size, f.sha256, f.chunk_count = "committed", self._size, sha, n
-                f.committed_at, f.lease_expires_at = now, None
+                # Conditional flip: on SQLite the checks above run before the write lock is
+                # taken, so GC may have aborted the file in between. Never resurrect it.
+                res = s.execute(
+                    update(File)
+                    .where(File.id == self.file_id, File.state == "pending")
+                    .values(
+                        state="committed",
+                        size=self._size,
+                        sha256=sha,
+                        chunk_count=n,
+                        committed_at=now,
+                        lease_expires_at=None,
+                    )
+                    .execution_options(synchronize_session=False)
+                )
+                if res.rowcount != 1:
+                    raise Conflict("upload was aborted (lease expired or cancelled)")
         except IntegrityError:
             # Another writer committed the same path concurrently; with overwrite we supersede it.
             if attempt == 0 and self.overwrite:
