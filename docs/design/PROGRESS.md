@@ -118,7 +118,7 @@
 - Found while writing 08-how-it-works.md (2026-11-09), not fixed yet:
   - ~~GC-vs-commit lost update~~: fixed with a conditional abort, a conditional commit and heartbeats while waiting (§3.6).
   - ~~Download replica query uses the wrong index on SQLite without `ANALYZE`~~: fixed with a `chunk_id IN (…)` lookup and a plan test (R-014).
-  - Uploads slower than ~28 KB/s fail: the lease is refreshed only per chunk.
+  - ~~Uploads slower than ~28 KB/s fail~~: the lease is now renewed whenever bytes arrive (§1.6).
   - Restore after post-snapshot repair/balance can lose chunks; there is no CLI restore from Drive.
   - A deleted `DriveMesh` Drive folder isn't detected by health checks.
   - `safe_mode_timeout` is unused.

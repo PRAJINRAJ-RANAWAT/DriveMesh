@@ -96,7 +96,7 @@ Number labels used throughout:
 There are also **defects found while writing this** (not doc mismatches). They are in §8.4 and §12.6. The most important ones:
 - a GC-vs-commit lost-update race (§3.6), **now fixed**
 - a download query plan that becomes O(all replicas) on SQLite (R-014), **now fixed**
-- uploads that fail on connections slower than ~28 KB/s (§1.5)
+- uploads that failed on connections slower than ~28 KB/s (§1.6), **now fixed**
 
 ---
 
@@ -284,9 +284,11 @@ These are [computed] from code constants, for 1 GiB, RF = 2, 8 MiB chunks:
 - **Max file size:** `max_upload_bytes` = 10 GiB default, configurable with no code upper bound (`config.py:33`).
 - **Memory.** In theory: buffer ≤ chunk + 1 MiB, plus 4 × (plaintext + ciphertext), plus per-put copies.
   **Measured** peak RSS: 214 MiB (100 MB file) to 331 MiB (5 GB file), flat from 1 GB to 5 GB (R-003 [measured, local], upload + download in one process).
-- **Slow clients fail.** The lease is refreshed only when a chunk is submitted (`writer.py:194,196-205`).
-  - A client that takes > 300 s to deliver 8 MiB (≈ **28 KB/s**, [computed] 8,388,608 / 300) lets the lease expire.
-  - GC then aborts the upload, and the commit returns 409 (`gc.py:129-134`, `writer.py:312-313`). No data is lost, but the upload fails.
+- **Slow clients (fixed 2026-11-09).**
+  - The lease used to be renewed only when a whole chunk was submitted. A client that took > 300 s to deliver 8 MiB (≈ 28 KB/s, [computed] 8,388,608 / 300) lost its lease, GC aborted the upload, and the commit returned 409. Behind the API's 1 MiB buffer the threshold was ≈ 3.5 KB/s.
+  - Now `write()` renews the lease whenever it's due (every lease/3 = 100 s of the injected clock), and the HTTP loop hands buffered bytes to the writer early when `writer.heartbeat_due()` (`writer.py`, `write`/`heartbeat_due`; `api.py`, `_stream_upload`).
+  - A client now keeps its upload as long as *some* bytes arrive within each 300 s lease. A stalled client still loses it, which is intended.
+  - Tests: `tests/test_upload_lease.py` (writer level and HTTP level; both failed before the fix).
 
 ---
 
@@ -710,7 +712,7 @@ What they mean in practice [computed]:
 1. No real-Drive measurements yet (R-pending).
 2. ~~GC-vs-commit lost update (§3.6)~~ **Fixed 2026-11-09** with a regression test.
 3. ~~On SQLite without `ANALYZE`, the download replica query became O(all replicas) (R-014)~~ **Fixed 2026-11-09**: the lookup is now by `chunk_id IN (…)`, pinned by a plan test.
-4. Uploads slower than ~28 KB/s fail (lease, §1.6).
+4. ~~Uploads slower than ~28 KB/s fail (lease, §1.6)~~ **Fixed 2026-11-09.**
 5. RPO ≥ 15 min. Restore after post-snapshot repair/balance can lose chunks (§4.6). There's no CLI restore from Drive (M17).
 6. A deleted `DriveMesh` folder isn't detected by health checks (M19).
 7. Single process, single DB, no HA. Signed-cookie sessions can't be revoked server-side (07 T3).

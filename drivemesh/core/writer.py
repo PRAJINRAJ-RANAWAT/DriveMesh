@@ -181,6 +181,9 @@ class FileWriter:
             chunk = bytes(self._buf[:cs])
             del self._buf[:cs]
             self._submit(chunk, last=False)
+        # Renew the lease while bytes keep arriving, not only per chunk: a slow but live
+        # client (< chunk_size per lease) was otherwise aborted by GC (08 §1.6).
+        self._heartbeat()
 
     def _submit(self, plain: bytes, last: bool) -> None:
         # Backpressure without head-of-line blocking: wait for *any* chunk to finish (chunks
