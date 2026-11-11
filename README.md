@@ -83,6 +83,12 @@ For each chunk:
 
 Full reads also verify a **whole-file SHA-256**. Downloads stream with bounded memory and support HTTP `Range` (video seeking).
 
+### Deleting, and accounts that disconnect
+- **Deleting a file or folder deletes its encrypted pieces from every linked Drive.** It's permanent and skips the Drive trash, so space is freed immediately. DriveMesh folders exist only in its database: each Drive holds one flat `DriveMesh` folder of `dm-…` objects.
+- **If a Drive is disconnected while you delete** (offline, or access revoked), the delete still completes for you. DriveMesh remembers what that Drive owes and deletes it there as soon as it reconnects. The Accounts page shows the pending count and a **Reconnect** button.
+- **Small files are not split**, but they're still encrypted, and the second copy always goes to a **different** account. If too few accounts are connected, the upload is refused with the reason ("Not available: x@gmail.com (unreachable)") rather than stored with less protection.
+- **Unlinking** first re-copies the account's data to your other accounts. Unlinking an account that's already disconnected works too.
+
 ### Self-healing
 ```mermaid
 stateDiagram-v2
@@ -124,14 +130,14 @@ Real Google Drive runs are pending** (see [MANUAL_STEPS §4](docs/design/MANUAL_
 
 | What | Result |
 |---|---|
-| Chaos: account loss, chunk deletion and corruption, `SIGKILL` mid-upload and mid-repair, metadata wipe + restore | **0 files lost and 0 wrong bytes across 140 trials** (7 experiments × 10, run before and after the 2026-11-09 fixes; R-008, R-015) |
+| Chaos: account loss, chunk deletion and corruption, `SIGKILL` mid-upload and mid-repair, metadata wipe + restore | **0 files lost and 0 wrong bytes across 210 trials** (7 experiments × 10, run three times as the code changed; R-008, R-015, R-016) |
 | Memory while streaming 1 GB → 5 GB files | peak RSS ~291–331 MiB, flat across 1/2/3/5 GB (68 MiB interpreter baseline) |
 | Parallel transfer, 8 accounts, simulated 10 MB/s per account | 47.2 MB/s mean vs 8.5 MB/s sequential; load-aware placement +39 % over plain hashing |
 | Repair after losing 1 of 4 accounts (simulated 10 MB/s links) | 12.7 MB/s (parallel repair; 4.3 MB/s before the fix) |
 | Storage overhead (measured) | RF=2: 2.0000×, RS(4,2): 1.5000×; encryption adds 32 B per chunk (legacy Fernet: +33.34 %) |
 | Metadata at 1M chunks (Postgres 16) | repair scan 5.0 s, full fsck 7.9 s (fsck was 291 s before a query rewrite) |
 | Hot queries use the right index with or without DB statistics | the download replica lookup used to scan every replica on SQLite without statistics (19.9 ms at 40k replicas). Now it always uses the `(chunk_id, state)` index, pinned by plan tests (R-014) |
-| Tests | **258 tests**, 91 % line coverage; CI runs them on SQLite **and** Postgres 16, plus Playwright browser tests |
+| Tests | **265 tests**, 91 % line coverage; CI runs them on SQLite **and** Postgres 16, plus Playwright browser tests |
 
 ### How much space do I get?
 Each free Google account has 15 GB **shared with Gmail and Photos**. DriveMesh keeps 256 MiB free per account.

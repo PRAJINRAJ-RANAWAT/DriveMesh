@@ -33,7 +33,7 @@ Number labels used throughout:
 | 5 | **60 s / 3 / 600 s** | health-check interval / consecutive failures before `unreachable` / grace period before an unhealthy account's replicas stop counting | `config.py:46-48` |
 | 6 | **900 s, keep 5** | metadata snapshot interval and retention per account | `config.py:59-60` |
 | 7 | **10 GiB** | default max upload size | `config.py:33` |
-| 8 | **0 / 140** | files lost / chaos trials: 70 before and 70 after the 2026-11-09 fixes | R-008, R-015 [measured, local] |
+| 8 | **0 / 210** | files lost / chaos trials: 70 each in R-008, R-015, R-016 | R-008, R-015, R-016 [measured, local] |
 | 9 | **5.0 s / 7.9 s** | repair scan / fsck over 1M chunks on Postgres 16 (fsck was 291 s) | R-007 [measured, local] |
 | 10 | **47.2 vs 8.5 MB/s** | 8 accounts parallel vs sequential, simulated 10 MB/s links. Peak RSS stays flat at 291–331 MiB from 1 to 5 GB | R-004 [measured, sim], R-003 [measured, local] |
 
@@ -85,7 +85,7 @@ Number labels used throughout:
 | M17 | 02 §6 / ADR-015: "`drivemesh restore` pulls the snapshot from **any account**" | the CLI restores only from a **local directory** (`restore_from_local_dir`). `restore_from_backend` exists but has no caller (no CLI or UI path for Drive) | `cli.py:250-256`, `backup.py:193-198` |
 | M18 | 02 §4: "max file size 1 TiB by design" | enforced default **10 GiB**: on the declared `Content-Length` and while streaming | `config.py:33`, `api.py:191-194`, `writer.py:171-174` |
 | M19 | 02 §6: a deleted account is detected by "404 on the app folder" | **was** false: the folder id is cached from `config_json`, so `health()` never checked it. **Fixed 2026-11-09:** `health()` now fetches the folder by id. 404 or `trashed` → `NotFoundError` → after 3 probes `unreachable` → repair (`gdrive.py`, `_check_folder`; `tests/test_gdrive.py`) | `gdrive.py:182-184`, `oauth.py:110-117` |
-| M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **258 tests**, 91 % (R-011, 2026-11-09); tested to **5 GB** (R-003) | results.md |
+| M20 | 06: "Shipped **199 tests**"; "max file size tested to [placeholder] GB" | **265 tests**, 91 % (R-011, 2026-11-12); tested to **5 GB** (R-003) | results.md |
 | M21 | 06 Q2: after an account fails, "reads skip it immediately" | `revoked` replicas are skipped. `unreachable` replicas are still tried, **last** | `reader.py:101,151-152` |
 | M22 | 03 §13: metrics labelled `{account}` | the labels are `{provider}` | `metrics.py:9-14` |
 | M23 | 03 §10: "if the refresh token changes, the new one is persisted" | secrets are written only at link time. Refreshed access tokens live only in memory | `accounts.py:152-153` (only caller of `write_secret`) |
@@ -381,11 +381,11 @@ sequenceDiagram
 
 ### 3.1 Delete file
 1. In one transaction: `committed → deleting` plus the enqueued `delete_file:<id>` job (`system.py:216-224`). It returns 202 (`api.py:334-337`).
-2. The job purges replicas in parallel (`gc.py:90-104`, `gc.py:42-87`):
-   - A remote 404 counts as success (`gc.py:38-39`).
-   - On a `removed` account the replica is *abandoned*: the row is dropped and an event recorded (`gc.py:54-63`).
-   - On a `revoked` account that raises `AuthError`, the replica is abandoned too (`gc.py:67-77`).
-3. Any other failure keeps the row and raises `RetryLater` (`gc.py:80-81,103-104`). The retry delay is backoff `min(300, 2^attempts)·U(0.5, 1)` s. After 8 attempts the job is `dead` (CRITICAL event) (`jobs.py:121-140`, `db.py:190`). The next GC pass re-enqueues a fresh job for every `deleting` file (`gc.py:148-149`). **A delete never "succeeds" while bytes remain**, but a file with a replica on a long-`unreachable` account cycles through dead jobs until that account comes back or is unlinked.
+2. The job purges every copy from **every linked Drive** in parallel (`gc.py`, `purge_replicas`). A Drive `files.delete` is permanent, so it skips the trash and frees quota at once. Each copy is handled by the state of its account:
+   - **Reachable:** the object is deleted now; a remote 404 counts as success.
+   - **Disconnected** (`unreachable`, `revoked`, or a draining account that keeps failing health checks; `gc.py`, `is_disconnected`): the object can't be deleted *now*. The replica row moves to **`remote_deletes`** and the user's delete completes. GC pays off that queue whenever the account is reachable again (`gc.py`, `drain_remote_deletes`, run on every GC pass), and the Accounts page shows "N deleted objects still to remove from this account". *(Since 2026-11-09; before that the job retried, died after 8 attempts and left the file stuck in `deleting`.)*
+   - **Removed** (unlinked): DriveMesh has no access any more; the row is dropped and a `replica_abandoned` event recorded.
+3. A failure on a *reachable* account keeps the row and raises `RetryLater` (backoff `min(300, 2^attempts)·U(0.5, 1)` s; `dead` after 8 attempts, then GC re-enqueues the job). **A delete never claims success while an object it could reach remains, and an object it can't reach is never forgotten.**
 4. When no replica rows remain: chunks are deleted and the file becomes `deleted` (`gc.py:105-110`).
 
 ### 3.2 Rename / move
@@ -505,7 +505,9 @@ flowchart TD
   L -->|no| Z["revoke Google token (best effort) · state = removed · secret_blob = NULL"]
 ```
 Code: `workers.py:415-456` (start), `workers.py:459-495` (job), `workers.py:498-511` (token revoke), `api.py:379-386`.
-- Covered by `tests/test_durability.py::test_unlink_with_evacuation`. No chaos experiment covers unlinking (R-008 has none).
+- **Unlinking a disconnected account works** (2026-11-09). Its chunks are re-copied from their other copies, its replica rows are queued as owed deletes, and the account is set to `removed`. The objects still sitting on that Drive can't be deleted without access, so DriveMesh records an `objects_left_on_unlinked_account` event: the user can delete the `DriveMesh` folder in that Drive by hand. They're encrypted either way. Previously this evacuation retried forever.
+- If the account *is* reachable, unlinking first deletes everything it still owes (`RetryLater` until done).
+- Covered by `tests/test_durability.py::test_unlink_with_evacuation` and `tests/test_disconnected.py`. No chaos experiment covers unlinking (R-008 has none).
 
 ### 4.5 Safe mode
 - **Enters:**
@@ -901,7 +903,7 @@ Result: 0.033 s at 20k chunks; fsck at 1M chunks on Postgres went from 291 s to 
 
 Sources:
 - models `drivemesh/db.py`
-- migrations `0001_initial_schema.py` (rev `d29bc289b785`), `0002_replica_chunk_state_index.py` (rev `d5a37403a62e`) and **latest** `0003_auth_sessions_tokens.py` (rev `263c772823d8`: users' Google identity, `sessions`, `refresh_tokens`, global account uniqueness)
+- migrations `0001_initial_schema.py` (rev `d29bc289b785`), `0002_replica_chunk_state_index.py` (rev `d5a37403a62e`) `0003_auth_sessions_tokens.py` (rev `263c772823d8`: users' Google identity, `sessions`, `refresh_tokens`, global account uniqueness) and **latest** `0004_remote_deletes.py` (deletes owed to disconnected accounts)
 
 Verified: `alembic.autogenerate.compare_metadata` against a freshly migrated DB reports **no difference** between the models and the migrations (R-014).
 
@@ -1015,6 +1017,8 @@ IDs are `String(32)` = `uuid4().hex` (`db.py:32-33`). Timestamps are naive UTC (
 - Columns: id INTEGER **PK** autoincrement; ts NN, index `ix_events_ts`; user_id; kind NN; level NN; file_id; account_id; detail_json NN.
 - **No FKs** (append-only audit log).
 
+**`remote_deletes`** (migration 0004): `id` **PK**; `account_id` NN **FK → linked_accounts.id**, index; `remote_id` (NULL if the upload outcome was unknown, so look it up by name); `object_name` NN (`dm-<replica id>`); `reason` NN; `attempts` NN; `last_error`; `created_at` NN. These are objects to delete from an account once it's reachable again. Included in metadata snapshots.
+
 **`kv`** (`db.py:211-214`): key VARCHAR(128) **PK**, value TEXT NN. Holds `last_backup_at`, `last_backup_hash`, `restored_at`, `restored_from`.
 
 ### 12.2 ER diagram
@@ -1031,6 +1035,7 @@ erDiagram
   files ||--o{ chunks : "file_id ON DELETE CASCADE"
   chunks ||--o{ replicas : "chunk_id ON DELETE CASCADE"
   linked_accounts ||--o{ replicas : "account_id"
+  linked_accounts ||--o{ remote_deletes : "owed deletes (account_id)"
   users {
     string id PK
     string username UK

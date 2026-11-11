@@ -4,5 +4,5 @@ Every value must come from a measured run recorded in docs/design/results.md (se
 test-suite numbers); tests/test_web.py checks that the landing page and results.md agree.
 """
 
-TEST_COUNT = "258"
+TEST_COUNT = "265"
 COVERAGE = "91%"
