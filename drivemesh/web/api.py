@@ -376,8 +376,10 @@ def delete_file(request: Request, path: str, user: User = Depends(require_csrf))
 
 
 # ---- accounts -----------------------------------------------------------------------------------
-def account_json(a: LinkedAccount) -> dict[str, Any]:
+def account_json(a: LinkedAccount, pending_deletes: int = 0) -> dict[str, Any]:
     return {
+        # objects still to delete from this account (it was disconnected when files were deleted)
+        "pending_deletes": pending_deletes,
         "id": a.id,
         "provider": a.provider,
         "name": a.display_name,
@@ -393,7 +395,12 @@ def account_json(a: LinkedAccount) -> dict[str, Any]:
 
 @router.get("/accounts")
 def list_accounts(request: Request, user: User = Depends(require_csrf)):
-    return {"accounts": [account_json(a) for a in _dm(request).accounts.list(user.id)]}
+    from drivemesh.core.gc import pending_remote_deletes
+
+    dm = _dm(request)
+    accs = dm.accounts.list(user.id)
+    owed = pending_remote_deletes(dm, [a.id for a in accs])
+    return {"accounts": [account_json(a, owed.get(a.id, 0)) for a in accs]}
 
 
 class LocalAccountBody(BaseModel):
