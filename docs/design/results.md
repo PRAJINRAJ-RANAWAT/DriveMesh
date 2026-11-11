@@ -195,9 +195,9 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 
 ## R-011: Test suite size and coverage
 - Method: `pytest --cov=drivemesh` on SQLite, 2026-11-09, after the UI redesign (the same suite also runs on Postgres 16 in CI).
-- Result (updated 2026-11-09 after Google sign-in, server-side sessions and API tokens): **258 tests**, made up of 248 unit/integration/API tests
+- Result (updated 2026-11-12 after the disconnected-account delete/unlink work): **265 tests**, made up of 255 unit/integration/API tests
   passing on SQLite plus 10 Playwright browser tests (they run in the CI `ui` job; skipped locally unless `DRIVEMESH_UI_TESTS=1`). All 10 passed
-  locally against Brave/Chromium. Line coverage **91%** (4,124 statements, 362 missed).
+  locally against Brave/Chromium. Line coverage **91%** (4,211 statements, 368 missed).
 - Earlier values:
   - 235 tests, 91% (3,866 statements, 344 missed) after the five 08-how-it-works fixes
   - 222 tests, 91% (3,845, 349) after the landing/UX iteration
@@ -291,3 +291,20 @@ Date of all runs: 2026-11-08. Defaults: chunk 8 MiB, `inflight_chunks` 4, RF 2.
 
 - **Total: 70 more trials, 0 files lost, 0 wrong bytes served.** The fixes didn't regress durability.
 - What this does *not* show: the chaos suite never produced the GC/commit interleaving that the fix closes. That race is covered only by the deterministic test `tests/test_gc_commit_race.py`.
+
+## R-016: Chaos suite re-run after the disconnected-account changes (`local`)
+- Method: same as R-008, `python -m bench.chaos all --trials 10`, 2026-11-12. Saved to `bench/out/chaos-2026-11-12T004858.json`.
+- The code under test adds `remote_deletes`: purges that hit a disconnected account are deferred, then drained by GC, and evacuation can finish for disconnected accounts.
+
+| Experiment (10 trials each) | Files lost | Wrong bytes served | fsck clean | Orphans left | Under-replicated after |
+|---|---|---|---|---|---|
+| account-loss | 0 | 0 | 10/10 | 0 | 0 |
+| account-loss-rf3 | 0 | 0 | 10/10 | 0 | 0 |
+| delete-chunks | 0 | 0 | 10/10 | 0 | 0 |
+| corrupt-chunks | 0 | 0 | 10/10 | 0 | 0 |
+| kill-upload | 0 | 0 | 10/10 | 0 | 0 |
+| kill-repair | 0 | 0 | 10/10 | 0 | 0 |
+| metadata-restore | 0 | 0 | 10/10 | 0 | 0 |
+
+- **Total: 70 more trials, 0 files lost, 0 wrong bytes. That makes 210 trials across R-008, R-015 and R-016, all with 0 lost.**
+- What this does *not* show: none of the chaos experiments deletes files while an account is disconnected. That path is covered by `tests/test_disconnected.py` only.
