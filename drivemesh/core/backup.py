@@ -33,6 +33,7 @@ from drivemesh.db import (
     Folder,
     Job,
     LinkedAccount,
+    RemoteDelete,
     Replica,
     User,
 )
@@ -45,7 +46,7 @@ log = logging.getLogger(__name__)
 SNAPSHOT_PREFIX = "dm-meta-"
 FORMAT = 1
 # Insert order respects foreign keys.
-TABLES = [User, LinkedAccount, Folder, File, Chunk, Replica, Job, KV]
+TABLES = [User, LinkedAccount, Folder, File, Chunk, Replica, RemoteDelete, Job, KV]
 
 
 def _encode(v: Any) -> Any:

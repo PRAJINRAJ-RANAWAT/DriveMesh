@@ -23,15 +23,20 @@ from dataclasses import dataclass, field
 from datetime import timedelta
 from typing import TYPE_CHECKING, Any
 
-from sqlalchemy import String, and_, case, cast, func, or_, select
+from sqlalchemy import String, and_, case, cast, delete, func, or_, select
 
 from drivemesh import crypto, metrics, placement
 from drivemesh.backends.base import AuthError, BackendError, NotFoundError
 from drivemesh.core.accounts import READABLE_STATES
-from drivemesh.core.gc import purge_replicas
+from drivemesh.core.gc import (
+    drain_remote_deletes,
+    is_disconnected,
+    pending_remote_deletes,
+    purge_replicas,
+)
 from drivemesh.core.jobs import RetryLater, enqueue, register
 from drivemesh.core.replication import place_object
-from drivemesh.db import Chunk, Event, File, Job, LinkedAccount, Replica
+from drivemesh.db import Chunk, Event, File, Job, LinkedAccount, RemoteDelete, Replica
 from drivemesh.errors import Conflict, NotFound
 
 if TYPE_CHECKING:
@@ -487,6 +492,20 @@ def evacuate_job(dm: DriveMesh, payload: dict[str, Any]) -> None:
         left = s.scalar(
             select(func.count()).select_from(Replica).where(Replica.account_id == account_id)
         )
+        acc = s.get(LinkedAccount, account_id)
+        disconnected = is_disconnected(dm, acc)
+    if left == 0 and not disconnected:
+        # Reachable: delete everything it still owes before letting go of the account.
+        drain_remote_deletes(dm, account_id)
+    owed = pending_remote_deletes(dm, [account_id]).get(account_id, 0)
+    if left == 0 and owed and not disconnected:
+        raise RetryLater(f"{owed} objects on the account must be removed before unlinking")
+    with dm.session() as s:
+        if left == 0 and owed:
+            # Unlinking a disconnected account: its copies were re-made elsewhere, but the
+            # objects on it can't be deleted and access ends now. They stay (encrypted, in its
+            # "DriveMesh" folder) until the user deletes that folder in Drive.
+            s.execute(delete(RemoteDelete).where(RemoteDelete.account_id == account_id))
         if left == 0:
             acc = s.get(LinkedAccount, account_id)
             if acc.provider == "gdrive" and acc.secret_blob:
@@ -494,6 +513,14 @@ def evacuate_job(dm: DriveMesh, payload: dict[str, Any]) -> None:
             acc.state, acc.secret_blob = "removed", None
     if left == 0:
         dm.accounts.invalidate(account_id)
+        if owed:
+            dm.event(
+                "objects_left_on_unlinked_account",
+                level="warning",
+                account_id=account_id,
+                objects=owed,
+                note="account was disconnected; delete its DriveMesh folder in Google Drive",
+            )
         dm.event("account_removed", level="warning", account_id=account_id)
         return
     raise RetryLater(f"{left} replicas still on draining account ({pending} blocked)")

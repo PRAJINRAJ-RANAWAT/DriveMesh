@@ -19,7 +19,13 @@
         DM.el("span", { text: a.capacity_bytes ? `${DM.size(a.free_bytes)} free of ${DM.size(a.capacity_bytes)}` : "capacity unknown" })),
       DM.el("div", { class: "small muted", text: "Last health check: " + (a.last_health_at ? DM.when(a.last_health_at) : "never") }),
       a.last_error ? DM.el("div", { class: "acct-error", text: a.last_error }) : "",
+      a.pending_deletes ? DM.el("div", { class: "small muted", text:
+        `${DM.plural(a.pending_deletes, "deleted object")} still to remove from this account. ` +
+        (["unreachable", "revoked"].includes(a.state) ? "DriveMesh removes them as soon as it reconnects." : "Removing them now.") }) : "",
       DM.el("div", { class: "acct-actions" },
+        a.provider === "gdrive" && ["revoked", "unreachable"].includes(a.state)
+          ? DM.el("a", { class: "btn btn-primary btn-sm", href: "/accounts/link/google", text: "Reconnect",
+              title: "Sign in to this Google account again; nothing is re-uploaded" }) : "",
         DM.el("button", { class: "btn btn-ghost btn-sm btn-danger", text: "Unlink", "aria-label": `Unlink ${a.email || a.name}`,
           onclick: () => { pending = a; $("unlink-name").textContent = a.email || a.name; dialog.showModal(); } })));
   }

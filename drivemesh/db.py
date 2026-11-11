@@ -230,6 +230,25 @@ def object_name(replica_id: str) -> str:
     return f"dm-{replica_id}"
 
 
+class RemoteDelete(Base):
+    """A stored object that must be deleted from an account that can't be reached right now.
+
+    When a file is deleted while one of its accounts is disconnected (unreachable or access
+    revoked), the replica row moves here so the user's delete completes immediately; GC
+    deletes the object as soon as the account is reachable again (gc.drain_remote_deletes).
+    """
+
+    __tablename__ = "remote_deletes"
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    account_id: Mapped[str] = mapped_column(ForeignKey("linked_accounts.id"), index=True)
+    remote_id: Mapped[str | None] = mapped_column(String(512))  # NULL: upload outcome unknown
+    object_name: Mapped[str] = mapped_column(String(64))  # dm-<replica id>, to find it by name
+    reason: Mapped[str] = mapped_column(String(64))
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    last_error: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utcnow)
+
+
 JOB_STATES = ("queued", "running", "done", "dead")
 
 

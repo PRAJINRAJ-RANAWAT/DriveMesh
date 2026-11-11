@@ -133,9 +133,7 @@ class FileWriter:
                 "probe", self.candidates, reserve=dm.settings.free_space_reserve
             )
             if len(eligible) < self.quorum:
-                raise InsufficientAccounts(
-                    f"need {self.quorum} writable accounts for this file, have {len(eligible)}"
-                )
+                raise InsufficientAccounts(self._not_enough_accounts(s, len(eligible)))
             self.file_id = new_id()
             self.dek = crypto.new_dek()
             wrapped, kek_id = crypto.wrap_dek(dm.keyring, self.dek, self.file_id)
@@ -161,6 +159,30 @@ class FileWriter:
                     created_at=now,
                 )
             )
+
+    def _not_enough_accounts(self, s, have: int) -> str:
+        """Explain why: copies always go to different accounts, so name the ones that can't
+        take writes right now and say what to do."""
+        from drivemesh.db import LinkedAccount
+
+        down = s.execute(
+            select(LinkedAccount.display_name, LinkedAccount.state).where(
+                LinkedAccount.user_id == self.user_id,
+                LinkedAccount.state.not_in(("active", "removed")),
+            )
+        ).all()
+        what = f"{self.quorum} copies" if self.scheme == "replica" else f"{self.quorum} shards"
+        msg = (
+            f"need {self.quorum} connected accounts to store {what} on different accounts, "
+            f"but only {have} can take uploads right now"
+        )
+        if down:
+            listed = ", ".join(f"{name} ({state})" for name, state in down)
+            return (
+                f"{msg}. Not available: {listed}. "
+                "Reconnect them on the Accounts page or link another account."
+            )
+        return f"{msg}. Link another account on the Accounts page."
 
     # ---- data --------------------------------------------------------------------------------
     def write(self, data: bytes) -> None:
