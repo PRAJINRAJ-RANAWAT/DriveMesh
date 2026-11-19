@@ -25,3 +25,7 @@ bench/work/
 .DS_Store
 3D model/
 ui-artifacts/
+token.json
+*.key
+token*.json
+client_secret*.json
